@@ -1,4 +1,4 @@
-# gg_busjob_advanced v7.1
+# gg_busjob_advanced v7.2
 
 Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
 
@@ -8,7 +8,9 @@ Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
 - **5 cores de painel** à escolha de cada jogador, e **7 idiomas** (pt, pt-br, en, es, fr, de, it)
 - **Trabalhadores em serviço**, **rotas** (com bloqueio por nível) e **histórico**
 - Painel do turno com **velocímetro em arco** (fica vermelho acima do limite de multa), próxima paragem e lista de paragens
-- **Passageiros visíveis**: a porta abre, caminham até ela, entram a pé e sentam-se; no destino levantam-se, saem a pé e afastam-se. Nunca ocupam o lugar do condutor nem o tiram de lá
+- **Passageiros visíveis**: a porta da frente abre, formam bicha, entram a pé um de cada vez e
+  só depois de estarem dentro é que se sentam no lugar deles. Saem pela mesma porta. Nunca são
+  teletransportados, nunca ocupam o lugar do condutor nem o tiram de lá
 - **Chave do autocarro** dada ao jogador ao começar (qbx, qb, qs, wasabi e Renewed já vêm tratados)
 - Sistema de níveis e XP, conquistas, meta diária e classificação
 - **Multas** por colisões e excesso de velocidade, medidas no servidor
@@ -35,6 +37,26 @@ setr gg_busjob_advanced:locale pt          # pt | pt-br | en | es | fr | de | it
 setr gg_busjob_advanced:framework auto     # auto | qbx_core | qb-core
 setr gg_busjob_advanced:speedUnit kmh      # kmh | mph
 ```
+
+## O que mudou na v7.2
+
+Três coisas, e as duas primeiras tinham a mesma raiz.
+
+1. **Ninguém entra senão pela porta.** O que se pedia ao jogo era: "mete este
+   passageiro naquele lugar lá atrás". Esse lugar corresponde a uma porta que o autocarro
+   não tem, e o jogo resolve à maneira dele — teletransporta o ped para o banco. Era isso
+   que vias. Agora **toda a gente entra pelo lugar da frente do lado do passeio**
+   (`boardSeat`), que é o que o jogo liga à porta da frente, e só **depois de já estar
+   dentro** é que muda para o lugar dela, o que da rua não se vê. Para sair faz-se o
+   inverso: volta ao lugar da porta por dentro e só depois desce a pé.
+   Para a paragem não demorar uma eternidade, caminham todos ao mesmo tempo e formam
+   bicha junto à porta; **só a entrada em si é que é um de cada vez**.
+2. **A mala já não abre.** Abriam-se as portas 1 e 3 e, se o modelo não as tivesse,
+   todas de 1 a 5 — e no GTA a 4 é o capô e a 5 é a mala. Agora só abre o que estiver em
+   `Config.Passengers.doors` (só a porta da frente, por omissão) e os índices 4 e 5 são
+   recusados pelo código, mesmo que alguém os meta no config.
+3. **Entregar o autocarro é entregar mesmo.** Na garagem o motorista sai sozinho e o
+   autocarro desvanece-se e desaparece, em vez de ficares lá dentro à espera.
 
 ## O que mudou na v7.1
 
@@ -185,9 +207,9 @@ Está tudo em `Config.Bonuses` e `Config.Penalties` (`config/config.lua`). Para 
 Ajustes dos passageiros (`Config.Passengers`) e das paragens:
 
 ```lua
-Config.StopServiceTime = 16000  -- ms máximos de uma paragem
+Config.StopServiceTime = 20000  -- ms máximos de uma paragem
 Config.StopServiceMin  = 2500   -- ms mínimos
-Config.StopServicePer  = 2200   -- ms por pessoa a entrar ou a sair
+Config.StopServicePer  = 2800   -- ms por pessoa a entrar ou a sair
 
 Config.Return = {               -- entrega do autocarro: é aqui que a rota fecha e se recebe
     enabled = true,
@@ -199,14 +221,15 @@ Config.Passengers = {
     seated = true,              -- sentam-se no autocarro; false = desvanecem-se ao entrar
     alightAtPickup = 2,         -- quantos saem numa paragem de recolha (liberta lugares); 0 desliga
     seatWait = 3500,            -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
-    boardAtOnce = 2,            -- quantos entram ao mesmo tempo (fila à porta; 1 = um a um)
-    enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro no lugar
+    boardSeat = 0,              -- lugar ligado à porta: é por aqui que todos entram e saem
+    doors = { 1 },              -- portas que abrem. NUNCA 4 nem 5: são o capô e a mala
+    queueRadius = 4.5,          -- distância (m) à porta a que chega a vez de entrar
+    enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,           -- tentativas extra se a porta estiver bloqueada
     warpFallback = false,       -- true senta à força quem não conseguir (teletransporte); false desvanece-se
-    doorBone = 'door_pside_f',  -- porta usada por quem não tem lugar
-    doorOffset = 1.0,           -- distância (m) à porta onde esses esperam
+    doorBone = 'door_pside_f',  -- osso da porta: é aí que se forma a bicha
+    doorOffset = 1.0,           -- distância (m) à porta onde a bicha se encosta
     walkSpeed = 1.5,            -- 1.0 caminhar, 2.0 correr
-    stagger = 700,              -- ms entre cada passageiro a entrar ou sair
     exitTimeout = 4500,         -- ms para os deixar sair antes de os tirar à força
     alightSpeed = 1.0,          -- velocidade a afastarem-se depois de saírem
     alightWalk = 7.0,           -- distância (m) que percorrem antes de desaparecerem

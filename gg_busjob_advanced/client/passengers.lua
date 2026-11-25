@@ -15,6 +15,7 @@ local batch = {}        -- peds mexidos pela paragem em curso (para desfazer se 
 local reserved = {}     -- lugar -> ped que o vai ocupar
 local jobs = {}         -- embarques e largadas em curso
 local pending = {}      -- fecho forçado de cada trabalho no fim da paragem
+local doorBusy          -- quem está a usar a porta neste momento (um de cada vez)
 local spawnedFor
 local generation = 0    -- sobe sempre que se limpa, para parar threads antigas
 
@@ -73,6 +74,7 @@ end
 -- Só serve de alvo para quem não tem lugar. Devolve também o vetor "direita" do autocarro.
 local function entrance(bus)
     local forward, right, _, position = GetEntityMatrix(bus)
+    local along = forward
 
     local point
     local bone = GetEntityBoneIndexByName(bus, cfg.doorBone)
@@ -85,7 +87,7 @@ local function entrance(bus)
 
     local ground = position.z - GetEntityHeightAboveGround(bus)
     local outside = point + right * cfg.doorOffset
-    return vector3(outside.x, outside.y, ground), right
+    return vector3(outside.x, outside.y, ground), right, along
 end
 
 -- Lugares dos passageiros, nunca o -1 (condutor). Os pares ficam do lado direito (o da porta de
@@ -102,9 +104,11 @@ local function seatOrder(bus)
     return order
 end
 
+-- O lugar da porta fica sempre livre: é por ele que toda a gente entra e sai.
 local function pickSeat(bus)
+    local doorSeat = cfg.boardSeat or 0
     for _, seat in ipairs(seatOrder(bus)) do
-        if not reserved[seat] and IsVehicleSeatFree(bus, seat) then
+        if seat ~= doorSeat and not reserved[seat] and IsVehicleSeatFree(bus, seat) then
             return seat
         end
     end
@@ -155,6 +159,7 @@ function Passengers.clearAll()
     deleteList(leaving)
     deleteList(batch)
     waiting, onboard, leaving, batch, reserved, jobs, pending = {}, {}, {}, {}, {}, {}, {}
+    doorBusy = nil
     spawnedFor = nil
 end
 
@@ -162,6 +167,7 @@ end
 function Passengers.beginStop()
     batch = {}
     pending = {}
+    doorBusy = nil
 end
 
 -- Fim da paragem: quem ficou a meio é resolvido já (sentado ou posto fora),
@@ -226,14 +232,16 @@ function Passengers.count()
     return #onboard
 end
 
--- Quantos lugares (sem contar o do condutor) estão livres neste momento.
+-- Quantos lugares estão livres: sem o do condutor e sem o da porta,
+-- que fica sempre vago porque é por ele que se entra e se sai.
 function Passengers.freeSeats(bus)
     if not bus or not DoesEntityExist(bus) then
         return 0
     end
+    local doorSeat = cfg.boardSeat or 0
     local free = 0
     for _, seat in ipairs(seatOrder(bus)) do
-        if not reserved[seat] and IsVehicleSeatFree(bus, seat) then
+        if seat ~= doorSeat and not reserved[seat] and IsVehicleSeatFree(bus, seat) then
             free = free + 1
         end
     end
@@ -245,19 +253,39 @@ function Passengers.busy()
     return next(jobs) ~= nil
 end
 
+-- ─────────────────────────────────────────────────────────────
+--  Entrar e sair SEMPRE pela porta
+--
+--  O problema de antes: pedia-se ao jogo para meter o passageiro num lugar
+--  lá atrás. Esse lugar corresponde a uma porta que o autocarro não tem, e o
+--  jogo resolve o assunto da maneira dele: teletransporta o ped para o banco.
+--
+--  Agora ninguém entra por outro lado senão o lugar da frente do lado do
+--  passeio (`boardSeat`, o 0), que é o que o jogo liga à porta da frente.
+--  Um de cada vez: os outros esperam no passeio, como numa fila. Quando o
+--  passageiro já está DENTRO, muda-se de lugar — isso não se vê da rua.
+--  Para sair faz-se o inverso: volta ao lugar da porta e só depois sai a pé.
+-- ─────────────────────────────────────────────────────────────
+
+local DOOR_SEAT = cfg.boardSeat or 0
+
+local function doorFree()
+    return doorBusy == nil or not DoesEntityExist(doorBusy)
+end
+
 -- Lugar real onde o jogo sentou o ped (às vezes não é o que pedimos).
 local function seatOf(bus, ped)
     local last = GetVehicleModelNumberOfSeats(GetEntityModel(bus)) - 2
-    for seat = 0, last do
+    for seat = -1, last do
         if GetPedInVehicleSeat(bus, seat) == ped then
             return seat
         end
     end
 end
 
--- Embarque. Os passageiros entram em fila pela porta, no máximo
--- `boardAtOnce` ao mesmo tempo, com a animação do jogo. Ninguém é teletransportado:
--- quem o jogo não conseguir sentar vai até à porta e desvanece-se.
+-- Embarque. Cada passageiro caminha até à porta e entra com a animação do jogo.
+-- Quem o jogo não conseguir meter dentro vai até à porta e desvanece-se:
+-- nunca aparece sentado do nada.
 function Passengers.board(bus, duration)
     local mine = waiting
     waiting = {}
@@ -271,21 +299,23 @@ function Passengers.board(bus, duration)
     local token = generation
     local startedAt = GetGameTimer()
     local job = startJob()
-    local atOnce = math.max(1, cfg.boardAtOnce or 2)
     local enterTimeout = cfg.enterTimeout or 9000
     local retries = cfg.enterRetries or 1
     local seatWait = cfg.seatWait or 3500
 
-    local states, active = {}, 0
+    local states = {}
     for index, ped in ipairs(mine) do
         states[index] = { ped = ped, order = index }
     end
 
     local function release(state)
-        if state.seat and reserved[state.seat] == state.ped then
-            reserved[state.seat] = nil
+        if state.final and reserved[state.final] == state.ped then
+            reserved[state.final] = nil
         end
-        state.seat = nil
+        state.final = nil
+        if doorBusy == state.ped then
+            doorBusy = nil
+        end
     end
 
     local function close(state, fade)
@@ -293,30 +323,23 @@ function Passengers.board(bus, duration)
             return
         end
         state.done = true
-        if state.started then
-            active = active - 1
-        end
+        release(state)
         if fade and DoesEntityExist(state.ped) then
-            release(state)
-            -- Pára a tentativa de entrar: nada de continuar a andar contra a porta
-            -- enquanto se desvanece.
             ClearPedTasks(state.ped)
             fadeAndDelete({ state.ped }, token)
         end
     end
 
-    -- Fecho forçado no fim da paragem: ninguém fica pendurado a meio.
     local function finish(vehicle)
         vehicle = vehicle or bus
         if token == generation then
             for _, state in ipairs(states) do
                 if not state.done and DoesEntityExist(state.ped) then
-                    -- Último recurso. Só se senta à força se Config.Passengers.warpFallback
-                    -- estiver ligado; por omissão desvanece-se, que fica muito melhor.
-                    if cfg.warpFallback and state.seat and vehicle and DoesEntityExist(vehicle)
-                        and IsVehicleSeatFree(vehicle, state.seat) then
+                    -- Último recurso, desligado por omissão: nada de teletransportes.
+                    if cfg.warpFallback and state.final and vehicle and DoesEntityExist(vehicle)
+                        and IsVehicleSeatFree(vehicle, state.final) then
                         state.done = true
-                        warpIn(state.ped, vehicle, state.seat)
+                        warpIn(state.ped, vehicle, state.final)
                     else
                         close(state, true)
                     end
@@ -328,9 +351,14 @@ function Passengers.board(bus, duration)
     pending[#pending + 1] = finish
 
     CreateThread(function()
-        local door = entrance(bus)
+        local door, _, along = entrance(bus)
         local deadline = startedAt + duration - 500
-        local nextStart = startedAt
+
+        -- Lugar na bicha: cada um encosta-se um pouco mais atrás, junto à porta.
+        local function queueSpot(index)
+            local back = along * (-0.95 * (index - 1))
+            return vector3(door.x + back.x, door.y + back.y, door.z)
+        end
 
         while token == generation and DoesEntityExist(bus) do
             local now = GetGameTimer()
@@ -344,53 +372,67 @@ function Passengers.board(bus, duration)
                         left = left + 1
                         local ped = state.ped
 
-                        if not state.started then
-                            -- fila: arranca o próximo quando houver espaço e um lugar livre
-                            if active < atOnce and now >= nextStart then
-                                local seat = cfg.seated and pickSeat(bus) or nil
-                                if seat or not cfg.seated or now >= startedAt + seatWait then
-                                    state.started = true
+                        if not state.phase then
+                            -- Toda a gente caminha ao mesmo tempo até junto da porta.
+                            -- Só a entrada em si é que é um de cada vez.
+                            state.phase = 'queue'
+                            state.limit = now + 12000
+                            local spot = queueSpot(state.order)
+                            FreezeEntityPosition(ped, false)
+                            ClearPedTasks(ped)
+                            TaskFollowNavMeshToCoord(ped, spot.x, spot.y, spot.z, cfg.walkSpeed, 10000, 0.6, 0, 0.0)
+
+                        elseif state.phase == 'queue' then
+                            local near = distance2d(GetEntityCoords(ped), door) < (cfg.queueRadius or 4.5)
+                            if doorFree() and (near or now >= state.limit) then
+                                local final = pickSeat(bus)
+                                if final then
+                                    state.final = final
+                                    reserved[final] = ped
+                                    state.phase = 'door'
                                     state.tries = 1
-                                    state.seat = seat
-                                    active = active + 1
-                                    nextStart = now + cfg.stagger
-                                    FreezeEntityPosition(ped, false)
+                                    state.limit = now + enterTimeout
+                                    doorBusy = ped
                                     ClearPedTasks(ped)
-                                    if seat then
-                                        reserved[seat] = ped
-                                        TaskEnterVehicle(ped, bus, -1, seat, cfg.walkSpeed, 1, 0)
-                                        state.limit = now + enterTimeout
-                                    else
-                                        TaskFollowNavMeshToCoord(ped, door.x, door.y, door.z, cfg.walkSpeed, 6000, 1.0, 0, 0.0)
-                                        state.limit = now + 6000
-                                    end
+                                    TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
+                                elseif now >= startedAt + seatWait then
+                                    -- Autocarro cheio: fica à porta e desvanece-se.
+                                    state.phase = 'fade'
+                                    state.limit = now + 4000
                                 end
                             end
-                        elseif state.seat then
+
+                        elseif state.phase == 'door' then
                             if IsPedInVehicle(ped, bus, false) then
-                                local seat = seatOf(bus, ped) or state.seat
-                                if seat ~= state.seat and reserved[state.seat] == ped then
-                                    reserved[state.seat] = nil
+                                -- Já está dentro. Só agora muda de lugar: da rua não se vê.
+                                local seat = state.final
+                                if seat and seat ~= DOOR_SEAT and IsVehicleSeatFree(bus, seat) then
+                                    SetPedIntoVehicle(ped, bus, seat)
                                 end
-                                state.seat = seat
+                                seat = seatOf(bus, ped) or seat or DOOR_SEAT
+                                if state.final and state.final ~= seat and reserved[state.final] == ped then
+                                    reserved[state.final] = nil
+                                end
                                 reserved[seat] = ped
+                                state.final = seat
                                 state.done = true
-                                active = active - 1
+                                doorBusy = nil
                                 settle(ped, seat)
                             elseif now >= state.limit then
                                 state.tries = state.tries + 1
                                 if state.tries <= retries + 1 then
-                                    -- outra tentativa: a porta pode ter estado bloqueada
                                     ClearPedTasks(ped)
-                                    TaskEnterVehicle(ped, bus, -1, state.seat, cfg.walkSpeed, 1, 0)
+                                    TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
                                     state.limit = now + enterTimeout
                                 else
                                     release(state)
+                                    state.phase = 'fade'
+                                    state.limit = now + 5000
                                     ClearPedTasks(ped)
                                     TaskFollowNavMeshToCoord(ped, door.x, door.y, door.z, cfg.walkSpeed, 6000, 1.0, 0, 0.0)
-                                    state.limit = now + 5000
                                 end
                             end
+
                         elseif distance2d(GetEntityCoords(ped), door) < 1.8 or now >= state.limit then
                             close(state, true)
                         end
@@ -411,6 +453,8 @@ function Passengers.board(bus, duration)
 end
 
 -- Largada: `fraction` (0 a 1) dos passageiros sentados saem e afastam-se a pé.
+-- Saem um de cada vez, também pela porta: primeiro voltam ao lugar da frente
+-- (dentro do autocarro, não se vê) e só depois saem com a animação do jogo.
 function Passengers.alight(bus, fraction, duration)
     local still = {}
     for _, ped in ipairs(leaving) do
@@ -451,98 +495,118 @@ function Passengers.alight(bus, fraction, duration)
 
     local token = generation
     local job = startJob()
-    local remaining = #chosen
+    local exitTimeout = cfg.exitTimeout or 6000
 
-    local function oneDone()
-        remaining = remaining - 1
-        if remaining <= 0 then
-            endJob(job)
-        end
+    local states = {}
+    for index, entry in ipairs(chosen) do
+        states[index] = { ped = entry.ped, seat = entry.seat }
+        leaving[#leaving + 1] = entry.ped
+        batch[#batch + 1] = entry.ped
     end
 
-    -- Fecho forçado no fim da paragem: a paragem nunca fica à espera de uma
-    -- animação encravada. Quem ainda está dentro leva uma ordem de saída
-    -- imediata e o próprio temporizador dele trata do resto (sair e desvanecer).
-    pending[#pending + 1] = function(vehicle)
-        vehicle = vehicle or bus
-        if token ~= generation then
+    local function done(state, fade)
+        if state.done then
             return
         end
-        for _, entry in ipairs(chosen) do
-            local ped = entry.ped
-            if DoesEntityExist(ped) and vehicle and DoesEntityExist(vehicle)
-                and IsPedInVehicle(ped, vehicle, true) then
-                ClearPedTasks(ped)
-                TaskLeaveVehicle(ped, vehicle, 0)
-            end
-            reserved[entry.seat] = nil
+        state.done = true
+        if state.seat and reserved[state.seat] == state.ped then
+            reserved[state.seat] = nil
         end
-        remaining = 0
+        if doorBusy == state.ped then
+            doorBusy = nil
+        end
+        if fade and DoesEntityExist(state.ped) then
+            fadeAndDelete({ state.ped }, token)
+        end
+    end
+
+    local function finish()
+        if token == generation then
+            for _, state in ipairs(states) do
+                -- Quem ficou preso lá dentro desvanece-se; não é atirado para fora.
+                done(state, not state.walking)
+            end
+        end
         endJob(job)
     end
+    pending[#pending + 1] = finish
 
-    for index, entry in ipairs(chosen) do
-        local ped = entry.ped
-        leaving[#leaving + 1] = ped
-        batch[#batch + 1] = ped
+    CreateThread(function()
+        local startedAt = GetGameTimer()
+        local deadline = startedAt + duration - 300
 
-        SetTimeout((index - 1) * cfg.stagger, function()
-            if token ~= generation or not DoesEntityExist(ped) then
-                reserved[entry.seat] = nil
-                oneDone()
-                return
-            end
+        while token == generation do
+            local now = GetGameTimer()
+            local left = 0
 
-            -- sai com a animação do jogo e a porta a abrir
-            local stuck = false
-            if DoesEntityExist(bus) and IsPedInVehicle(ped, bus, false) then
-                ClearPedTasks(ped)
-                TaskLeaveVehicle(ped, bus, 0)
-                local limit = GetGameTimer() + cfg.exitTimeout
-                while IsPedInVehicle(ped, bus, true) and GetGameTimer() < limit
-                    and token == generation and DoesEntityExist(ped) and DoesEntityExist(bus) do
-                    Wait(100)
-                end
-                -- Segunda tentativa, com a mesma animação (nada de saltos nem pops).
-                if token == generation and DoesEntityExist(ped) and DoesEntityExist(bus)
-                    and IsPedInVehicle(ped, bus, true) then
-                    ClearPedTasks(ped)
-                    TaskLeaveVehicle(ped, bus, 0)
-                    limit = GetGameTimer() + cfg.exitTimeout
-                    while IsPedInVehicle(ped, bus, true) and GetGameTimer() < limit
-                        and token == generation and DoesEntityExist(ped) and DoesEntityExist(bus) do
-                        Wait(100)
+            for _, state in ipairs(states) do
+                if not state.done then
+                    if not DoesEntityExist(state.ped) or not DoesEntityExist(bus) then
+                        done(state, false)
+                    else
+                        left = left + 1
+                        local ped = state.ped
+
+                        if not state.phase then
+                            if doorFree() then
+                                state.phase = 'out'
+                                state.limit = now + exitTimeout
+                                doorBusy = ped
+                                -- volta ao lugar da porta, por dentro
+                                if IsPedInVehicle(ped, bus, false) and state.seat ~= DOOR_SEAT
+                                    and IsVehicleSeatFree(bus, DOOR_SEAT) then
+                                    SetPedIntoVehicle(ped, bus, DOOR_SEAT)
+                                end
+                                ClearPedTasks(ped)
+                                TaskLeaveVehicle(ped, bus, 0)
+                            end
+
+                        elseif state.phase == 'out' then
+                            if not IsPedInVehicle(ped, bus, true) then
+                                -- Já está na rua: afasta-se e desvanece-se.
+                                state.walking = true
+                                doorBusy = nil
+                                if state.seat and reserved[state.seat] == ped then
+                                    reserved[state.seat] = nil
+                                end
+                                local _, right, _, busPosition = GetEntityMatrix(bus)
+                                local here = GetEntityCoords(ped)
+                                local side = ((here.x - busPosition.x) * right.x + (here.y - busPosition.y) * right.y) >= 0 and 1.0 or -1.0
+                                local away = here + right * (side * cfg.alightWalk)
+                                TaskFollowNavMeshToCoord(ped, away.x, away.y, here.z, cfg.alightSpeed, 8000, 1.0, 0, 0.0)
+                                local who = state
+                                SetTimeout(cfg.alightLinger, function()
+                                    if token == generation then
+                                        done(who, true)
+                                    end
+                                end)
+                                state.phase = 'away'
+                            elseif now >= state.limit then
+                                -- A porta não o deixou sair: segunda tentativa, mesma animação.
+                                if not state.retried then
+                                    state.retried = true
+                                    state.limit = now + exitTimeout
+                                    ClearPedTasks(ped)
+                                    TaskLeaveVehicle(ped, bus, 0)
+                                else
+                                    done(state, true)
+                                end
+                            end
+                        end
                     end
                 end
-                stuck = DoesEntityExist(ped) and DoesEntityExist(bus) and IsPedInVehicle(ped, bus, true)
             end
-            reserved[entry.seat] = nil
-            oneDone()
-            if token ~= generation or not DoesEntityExist(ped) then
+
+            if left == 0 then
+                break
+            end
+            if GetGameTimer() >= deadline then
+                finish()
                 return
             end
+            Wait(100)
+        end
 
-            -- Nunca saiu: desvanece-se lá dentro em vez de ser teletransportado.
-            if stuck then
-                fadeAndDelete({ ped }, token)
-                return
-            end
-
-            -- afasta-se do autocarro para o lado por onde saiu
-            if DoesEntityExist(bus) then
-                local _, right, _, busPosition = GetEntityMatrix(bus)
-                local here = GetEntityCoords(ped)
-                local side = ((here.x - busPosition.x) * right.x + (here.y - busPosition.y) * right.y) >= 0 and 1.0 or -1.0
-                local away = here + right * (side * cfg.alightWalk)
-                TaskFollowNavMeshToCoord(ped, away.x, away.y, here.z, cfg.alightSpeed, 8000, 1.0, 0, 0.0)
-            end
-            Wait(cfg.alightLinger)
-            fadeAndDelete({ ped }, token)
-        end)
-    end
-
-    -- Rede de segurança: se alguém nunca sair, a paragem não fica presa.
-    SetTimeout(duration, function()
         endJob(job)
     end)
 

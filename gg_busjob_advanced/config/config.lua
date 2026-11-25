@@ -29,9 +29,9 @@ Config.FirstStopDelay = 20
 Config.StopCooldown = 8
 -- Cada paragem dura o que precisar: o mínimo, mais um tempo por pessoa, até ao máximo.
 -- Acaba sempre logo que todos entraram ou saíram.
-Config.StopServiceTime = 16000           -- ms máximos de uma paragem
+Config.StopServiceTime = 20000           -- ms máximos de uma paragem
 Config.StopServiceMin = 2500             -- ms mínimos
-Config.StopServicePer = 2200             -- ms por pessoa a entrar ou a sair
+Config.StopServicePer = 2800             -- ms por pessoa a entrar ou a sair
 -- Danos e multas nunca tiram mais de (1 - este valor) do pagamento base.
 -- Com 0.65, o máximo descontado é 35%.
 Config.MinimumConditionMultiplier = 0.65
@@ -135,15 +135,18 @@ Config.Passengers = {
     seated = true,                 -- os passageiros entram e sentam-se no autocarro (só o motorista os vê)
     alightAtPickup = 2,            -- quantos saem numa paragem de recolha (liberta lugares para os novos); 0 desliga
     seatWait = 3500,               -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
-    boardAtOnce = 2,               -- quantos entram ao mesmo tempo (fila à porta; 1 = um a um)
-    enterTimeout = 9000,           -- ms que o jogo tem para meter um passageiro no lugar
+    boardSeat = 0,                 -- lugar ligado à porta da frente: é por aqui que todos entram e saem
+    -- Portas que abrem na paragem. 1 = porta da frente do lado do passeio.
+    -- NUNCA metas 4 nem 5: no GTA são o capô e a mala. Era isso que abria a mala.
+    doors = { 1 },
+    queueRadius = 4.5,             -- distância (m) à porta a que chega a vez de entrar
+    enterTimeout = 9000,           -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,              -- tentativas extra se a porta estiver bloqueada
     warpFallback = false,          -- true senta à força quem não conseguir entrar (teletransporte); false desvanece-se
-    doorBone = 'door_pside_f',     -- porta de entrada, usada só por quem não tem lugar
-    doorOffset = 1.0,              -- distância (m) à porta onde esses esperam
+    doorBone = 'door_pside_f',     -- osso da porta de entrada: é aí que se forma a bicha
+    doorOffset = 1.0,              -- distância (m) à porta onde a bicha se encosta
     walkSpeed = 1.5,               -- 1.0 caminhar, 2.0 correr
-    stagger = 700,                 -- ms entre cada passageiro a entrar ou sair
-    exitTimeout = 4500,            -- ms que o jogo tem para os deixar sair antes de os tirar à força
+    exitTimeout = 6000,            -- ms que o jogo tem para deixar sair um passageiro
     alightSpeed = 1.0,             -- velocidade a afastarem-se depois de saírem
     alightWalk = 7.0,              -- distância (m) que percorrem antes de desaparecerem
     alightLinger = 2000,           -- ms que ficam à vista depois de saírem

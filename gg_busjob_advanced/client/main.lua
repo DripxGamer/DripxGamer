@@ -220,24 +220,25 @@ local function setNextStop()
     EndTextCommandSetBlipName(stopBlip)
 end
 
--- Portas de entrada: as do lado direito (passeio). Se o modelo não as tiver, abre as que existirem
--- menos a do condutor.
+-- Portas da paragem. Só as de Config.Passengers.doors, e nunca os índices 4 e 5,
+-- que no GTA são o capô e a mala: era por isso que a bagageira abria com a porta.
+local ENTRANCE_DOORS = {}
+for _, index in ipairs(Config.Passengers.doors or { 1 }) do
+    index = tonumber(index)
+    if index and index >= 0 and index <= 3 then
+        ENTRANCE_DOORS[#ENTRANCE_DOORS + 1] = index
+    end
+end
+
 local function setEntranceDoors(bus, open)
     if not DoesEntityExist(bus) then
         return
     end
 
     local doors = {}
-    for _, index in ipairs({ 1, 3 }) do
+    for _, index in ipairs(ENTRANCE_DOORS) do
         if GetIsDoorValid(bus, index) then
             doors[#doors + 1] = index
-        end
-    end
-    if #doors == 0 then
-        for index = 1, 5 do
-            if GetIsDoorValid(bus, index) then
-                doors[#doors + 1] = index
-            end
         end
     end
 
@@ -344,36 +345,48 @@ local function finishRoute(result)
         SetVehicleIndicatorLights(bus, 0, false)
         SetVehicleIndicatorLights(bus, 1, false)
         SetVehicleHandbrake(bus, false)
-        setEntranceDoors(bus, true)
 
-        -- O autocarro NUNCA desaparece com o jogador lá dentro: espera que ele saia.
+        -- Entregar o autocarro: o motorista desce e o autocarro é recolhido.
+        -- Nunca se apaga com ele lá dentro, mas também não fica à espera eternamente.
         if IsPedInVehicle(PlayerPedId(), bus, true) then
             notify('shift_done_leave', 'info')
-        end
-
-        local deadline = GetGameTimer() + (Config.Finish.leaveSeconds * 1000)
-        while GetGameTimer() < deadline do
-            if not DoesEntityExist(bus) then
-                Passengers.clearAll()
-                return
-            end
-            if not IsPedInVehicle(PlayerPedId(), bus, true) then
-                break
-            end
-            Wait(500)
-        end
-
-        -- Continua lá dentro no fim do tempo: sai primeiro, só depois o autocarro vai embora.
-        if DoesEntityExist(bus) and IsPedInVehicle(PlayerPedId(), bus, true) then
+            setEntranceDoors(bus, true)
             TaskLeaveVehicle(PlayerPedId(), bus, 0)
-            local out = GetGameTimer() + 8000
-            while IsPedInVehicle(PlayerPedId(), bus, true) and GetGameTimer() < out do
+
+            local deadline = GetGameTimer() + (Config.Finish.leaveSeconds * 1000)
+            local nudge = GetGameTimer() + 3000
+            while GetGameTimer() < deadline do
+                if not DoesEntityExist(bus) then
+                    Passengers.clearAll()
+                    return
+                end
+                if not IsPedInVehicle(PlayerPedId(), bus, true) then
+                    break
+                end
+                -- Se alguma coisa cancelar a saída, volta a pedi-la.
+                if GetGameTimer() >= nudge then
+                    nudge = GetGameTimer() + 3000
+                    TaskLeaveVehicle(PlayerPedId(), bus, 0)
+                end
                 Wait(100)
             end
         end
 
-        Wait(2000)
+        Wait(700)
         Passengers.clearAll()
+        if not DoesEntityExist(bus) then
+            return
+        end
+
+        -- Desvanece e desaparece, em vez de sumir de repente.
+        setEntranceDoors(bus, false)
+        for alpha = 255, 0, -45 do
+            if not DoesEntityExist(bus) then
+                return
+            end
+            SetEntityAlpha(bus, alpha, false)
+            Wait(60)
+        end
         deleteBus(bus)
     end)
 end
