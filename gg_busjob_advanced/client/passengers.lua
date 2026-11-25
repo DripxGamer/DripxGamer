@@ -35,6 +35,16 @@ local jobs = {}         -- embarques e largadas em curso
 local pending = {}      -- fecho forçado de cada trabalho no fim da paragem
 local doorBusy          -- quem está a usar a porta neste momento (um de cada vez)
 local spawnedFor
+
+-- Modo de embarque:
+--   'door'   entram pela porta e ficam lá dentro sem se verem. Nunca falha,
+--            porque nunca se pede ao jogo para sentar ninguém.
+--   'seated' sentam-se nos bancos, vêem-se pelas janelas. Mais bonito, mas
+--            depende de o motor do jogo colaborar.
+--   'off'    sem passageiros nenhuns.
+local MODE = cfg.mode or (cfg.seated == false and 'door' or 'seated')
+local virtual = 0        -- quantos vão a bordo quando não se sentam
+
 local generation = 0    -- sobe sempre que se limpa, para parar threads antigas
 
 local function deletePed(ped)
@@ -198,6 +208,7 @@ function Passengers.clearAll()
     deleteList(batch)
     waiting, onboard, leaving, batch, reserved, jobs, pending = {}, {}, {}, {}, {}, {}, {}
     doorBusy = nil
+    virtual = 0
     spawnedFor = nil
 end
 
@@ -245,7 +256,7 @@ end
 
 -- Chamado em cada ciclo da rota: faz aparecer/desaparecer os passageiros conforme a distância.
 function Passengers.update(stopIndex, stop, distance)
-    if not cfg.enabled then
+    if not cfg.enabled or MODE == 'off' then
         return
     end
 
@@ -267,6 +278,9 @@ end
 
 -- Quantos passageiros estão sentados (só os que se veem; o número da rota pode ser maior).
 function Passengers.count()
+    if MODE == 'door' then
+        return virtual
+    end
     return #onboard
 end
 
@@ -275,6 +289,9 @@ end
 function Passengers.freeSeats(bus)
     if not bus or not DoesEntityExist(bus) then
         return 0
+    end
+    if MODE == 'door' then
+        return 99        -- não há bancos a gerir: ninguém se senta
     end
     local doorSeat = cfg.boardSeat or 0
     local free = 0
@@ -464,7 +481,17 @@ function Passengers.board(bus, duration)
                             -- Chega a vez quando a porta está livre e é mesmo a dele.
                             -- A distância já não decide nada: o próprio TaskEnterVehicle
                             -- trata de o levar os últimos metros até à porta.
-                            if doorFree() and turn == state then
+                            if doorFree() and turn == state and MODE == 'door' then
+                                -- Caminha o último metro até à porta e entra.
+                                -- Não se pede nenhum lugar ao jogo, por isso
+                                -- não há nada que ele possa teletransportar.
+                                state.phase = 'step'
+                                state.limit = now + math.min(6000, budget)
+                                doorBusy = ped
+                                wakeUp(ped)
+                                TaskFollowNavMeshToCoord(ped, door.x, door.y, door.z, cfg.walkSpeed, 6000, 0.35, 0, 0.0)
+
+                            elseif doorFree() and turn == state then
                                 local final = pickSeat(bus)
                                 if final then
                                     state.final = final
@@ -481,6 +508,15 @@ function Passengers.board(bus, duration)
                                     state.phase = 'fade'
                                     state.limit = now + 4000
                                 end
+                            end
+
+                        elseif state.phase == 'step' then
+                            -- Já está à porta: entrou. Desaparece ali, como quem sobe.
+                            if distance2d(GetEntityCoords(ped), door) < 1.1 or now >= state.limit then
+                                state.done = true
+                                doorBusy = nil
+                                virtual = virtual + 1
+                                fadeAndDelete({ ped }, token)
                             end
 
                         elseif state.phase == 'door' then
@@ -558,7 +594,73 @@ end
 -- Largada: `fraction` (0 a 1) dos passageiros sentados saem e afastam-se a pé.
 -- Saem um de cada vez, também pela porta: primeiro voltam ao lugar da frente
 -- (dentro do autocarro, não se vê) e só depois saem com a animação do jogo.
+-- Largada no modo 'door': não há ninguém sentado, por isso os passageiros
+-- aparecem junto à porta (a desvanecer para dentro) e afastam-se a pé.
+local function alightAtDoor(bus, count, duration)
+    local token = generation
+    local job = startJob()
+    local door, right = entrance(bus)
+    local models = pickModels(count)
+    local out = 0
+
+    for index = 1, count do
+        SetTimeout((index - 1) * 650, function()
+            if token ~= generation or not DoesEntityExist(bus) then
+                out = out + 1
+                if out >= count then endJob(job) end
+                return
+            end
+
+            local model = joaat(models[index] or models[1] or 'a_m_y_business_01')
+            if pcall(lib.requestModel, model, 3000) then
+                local ped = CreatePed(4, model, door.x, door.y, door.z, 0.0, false, false)
+                if ped ~= 0 then
+                    SetEntityAsMissionEntity(ped, true, true)
+                    SetBlockingOfNonTemporaryEvents(ped, true)
+                    SetEntityInvincible(ped, true)
+                    SetPedCanRagdoll(ped, false)
+                    SetEntityAlpha(ped, 0, false)
+                    leaving[#leaving + 1] = ped
+                    batch[#batch + 1] = ped
+
+                    local away = door + right * cfg.alightWalk
+                    TaskFollowNavMeshToCoord(ped, away.x, away.y, door.z, cfg.alightSpeed, 8000, 1.0, 0, 0.0)
+
+                    CreateThread(function()
+                        for alpha = 0, 255, 51 do
+                            if token ~= generation or not DoesEntityExist(ped) then return end
+                            SetEntityAlpha(ped, alpha, false)
+                            Wait(45)
+                        end
+                        if DoesEntityExist(ped) then ResetEntityAlpha(ped) end
+                        Wait(cfg.alightLinger)
+                        fadeAndDelete({ ped }, token)
+                    end)
+                end
+                SetModelAsNoLongerNeeded(model)
+            end
+
+            out = out + 1
+            if out >= count then
+                endJob(job)
+            end
+        end)
+    end
+
+    SetTimeout(duration, function() endJob(job) end)
+    return count
+end
+
 function Passengers.alight(bus, fraction, duration)
+    if MODE == 'door' then
+        local count = math.min(virtual, math.ceil(virtual * math.min(fraction, 1.0) - 0.0001))
+        if count <= 0 then
+            return 0
+        end
+        virtual = virtual - count
+        return alightAtDoor(bus, count, duration)
+    end
+
     local still = {}
     for _, ped in ipairs(leaving) do
         if DoesEntityExist(ped) then

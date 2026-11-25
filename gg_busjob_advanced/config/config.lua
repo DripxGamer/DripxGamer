@@ -154,10 +154,21 @@ Config.Bonuses = {
 -- ─────────────────────────────────────────────────────────────
 Config.Passengers = {
     enabled = true,
+
+    -- COMO É QUE OS PASSAGEIROS ENTRAM. Se alguma vez vires alguém a
+    -- teletransportar-se, é porque estás em 'seated': muda para 'door'.
+    --   'door'   caminham até à porta e entram por ela. Nunca se pede ao jogo
+    --            para sentar ninguém, por isso NUNCA pode haver teletransportes.
+    --            Na largada aparecem à porta e afastam-se a pé.
+    --   'seated' entram e sentam-se nos bancos, vêem-se pelas janelas. Fica
+    --            melhor, mas depende de o motor do GTA colaborar com a animação.
+    --   'off'    sem passageiros à vista (a rota conta na mesma).
+    mode = 'door',
+
     spawnDistance = 130.0,
     despawnDistance = 220.0,
     scenario = 'WORLD_HUMAN_STAND_IMPATIENT',
-    seated = true,                 -- os passageiros entram e sentam-se no autocarro (só o motorista os vê)
+    seated = true,                 -- antigo: só serve se não definires mode (true = 'seated')
     alightAtPickup = 2,            -- quantos saem numa paragem de recolha (liberta lugares para os novos); 0 desliga
     seatWait = 3500,               -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
     boardSeat = 0,                 -- lugar ligado à porta da frente: é por aqui que todos entram e saem

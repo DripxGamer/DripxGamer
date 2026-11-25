@@ -70,6 +70,13 @@ local function getIdentifier(player)
         return nil
     end
     if frameworkName == 'es_extended' then
+        -- O ESX tem as duas formas conforme a versão: o método e o campo.
+        if type(player.getIdentifier) == 'function' then
+            local ok, value = pcall(player.getIdentifier, player)
+            if ok and value then
+                return tostring(value)
+            end
+        end
         return player.identifier and tostring(player.identifier) or nil
     end
     local data = player.PlayerData

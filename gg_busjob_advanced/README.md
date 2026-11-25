@@ -1,4 +1,4 @@
-# gg_busjob_advanced v8.1
+# gg_busjob_advanced v8.2
 
 Emprego de motorista de autocarro para **Qbox**, **QBCore** e **ESX**, em **7 idiomas**.
 
@@ -43,6 +43,22 @@ Ao arrancar, a consola do servidor diz qual o framework que encontrou:
 ```
 [gg_busjob_advanced] framework: es_extended
 ```
+
+## O que mudou na v8.2 — o modo que nunca falha
+
+`Config.Passengers.mode` escolhe como é que os passageiros entram:
+
+| Modo | O que se vê | Risco |
+| --- | --- | --- |
+| **`'door'`** (por omissão) | Caminham até à porta e entram por ela. Na largada aparecem à porta e afastam-se a pé. | **Nenhum.** Nunca se pede ao jogo para sentar ninguém, por isso não há nada que ele possa teletransportar. |
+| `'seated'` | Entram e **sentam-se nos bancos**, vêem-se pelas janelas. | Depende de o motor do GTA colaborar com a animação de entrada. É o modo que dava os teletransportes. |
+| `'off'` | Sem passageiros à vista. A rota conta na mesma. | Nenhum. |
+
+Se alguma vez vires alguém a saltar para dentro, é porque estás em `'seated'`. Põe `'door'` e o
+problema desaparece por construção, não por afinação.
+
+A bateria de testes do cliente corre agora **duas vezes, uma em cada modo**. No `'door'`
+verifica-se que o `SetPedIntoVehicle` **não é chamado nem uma única vez**.
 
 ## O que mudou na v8.1
 
@@ -335,7 +351,8 @@ Config.Passengers = {
     queueSpacing = 0.85,        -- espaço (m) entre cada um na bicha à porta
     enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,           -- tentativas extra se a porta estiver bloqueada
-    seatQuietly = true,         -- se a porta falhar, apaga-se à porta e aparece sentado (sem salto visível)
+    mode = 'door',              -- 'door' (seguro) | 'seated' (bonito) | 'off'
+    seatQuietly = true,         -- só no 'seated': se a porta falhar, aparece sentado sem salto visível
     doorBone = 'door_pside_f',  -- osso da porta: é aí que se forma a bicha
     doorOffset = 1.0,           -- distância (m) à porta onde a bicha se encosta
     walkSpeed = 1.5,            -- 1.0 caminhar, 2.0 correr
