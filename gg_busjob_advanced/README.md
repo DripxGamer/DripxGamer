@@ -1,4 +1,4 @@
-# gg_busjob_advanced v7
+# gg_busjob_advanced v7.1
 
 Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
 
@@ -35,6 +35,13 @@ setr gg_busjob_advanced:locale pt          # pt | pt-br | en | es | fr | de | it
 setr gg_busjob_advanced:framework auto     # auto | qbx_core | qb-core
 setr gg_busjob_advanced:speedUnit kmh      # kmh | mph
 ```
+
+## O que mudou na v7.1
+
+A **Frota** passou a mostrar os autocarros a sério: capturas dos três modelos do jogo, recortadas
+do fundo, em `web/img/bus-coach.webp`, `bus-city.webp` e `bus-airport.webp` (65 KB ao todo).
+Só os três modelos base é que têm foto; qualquer outro que acrescentes a `Config.Vehicles`
+continua a ser desenhado em SVG, para não mostrares um autocarro que não é o teu.
 
 ## O que mudou na v7
 
@@ -235,8 +242,8 @@ A cor que o jogador escolhe no terminal fica guardada no próprio jogo dele e te
 
 ## O aspeto do terminal
 
-Não há ficheiros de imagem para trocar: tudo o que se vê é desenhado em CSS e SVG a partir dos dados
-da rota. Para mexer no aspeto:
+Tirando as três fotos dos autocarros na Frota, tudo o que se vê é desenhado em CSS e SVG a partir
+dos dados da rota. Para mexer no aspeto:
 
 | O quê | Onde |
 | --- | --- |
@@ -247,7 +254,7 @@ da rota. Para mexer no aspeto:
 | Letreiro de destino | `.blind*` em `web/css/style.css` |
 | Faixa de paragens dos cartões | `lineStrip()` em `web/js/app.js` e `.strip*` no CSS |
 | Traçado da linha | `routeMap()` em `web/js/app.js` |
-| Autocarros da Frota | `busArt()` em `web/js/app.js` e `.bus*` no CSS |
+| Autocarros da Frota | fotos em `web/img/bus-*.webp` (`BUS_PHOTOS` em `web/js/app.js`); modelos sem foto são desenhados por `busArt()` |
 
 As fontes **Barlow**, **Barlow Condensed** e **Doto** continuam em `web/fonts/`. O recurso passou de
 cerca de 1,8 MB para 580 KB.
@@ -264,12 +271,13 @@ shared.lua            tempo de referência, distância e passageiros de cada rot
 server.lua            sessões, pagamento, multas, histórico, perfil, classificação
 client/main.lua       fluxo da rota, marcadores, ligação à interface
 client/passengers.lua passageiros locais
-web/                  interface (HTML, CSS, JS, sem build, sem imagens)
+web/                  interface (HTML, CSS, JS, sem build)
 web/fonts/            Barlow, Barlow Condensed e Doto
+web/img/              os três autocarros do jogo, recortados (WebP com transparência)
 ```
 
 ## Créditos
 
 Fontes **Barlow**, **Barlow Condensed** e **Doto**, sob a licença SIL Open Font License 1.1. Os textos
-das licenças estão em `web/fonts/`. Não há mais nenhum recurso de terceiros: tudo o resto é desenhado
-pelo próprio código.
+das licenças estão em `web/fonts/`. As imagens dos autocarros em `web/img/` são capturas do próprio
+jogo, recortadas do fundo. Tudo o resto é desenhado pelo código.

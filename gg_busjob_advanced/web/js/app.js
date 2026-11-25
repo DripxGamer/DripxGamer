@@ -1114,8 +1114,18 @@ function badgesPanel() {
 }
 
 /* ── Frota ─────────────────────────────────────────────────── */
+// Os três autocarros do jogo têm foto recortada em web/img/.
+// Qualquer outro modelo que acrescentes é desenhado (busArt) em vez de ter foto.
+const BUS_PHOTOS = { coach: 'coach', bus: 'city', airbus: 'airport' };
+
 function busKind(model) {
-    return model === 'coach' ? 'coach' : model === 'airbus' ? 'airport' : 'city';
+    return BUS_PHOTOS[model] || 'city';
+}
+
+function busPhoto(v) {
+    const kind = BUS_PHOTOS[v.model];
+    if (!kind) return null;
+    return el('img', { class: 'bus-photo', src: `img/bus-${kind}.webp`, alt: v.label, loading: 'lazy' });
 }
 
 // Autocarro de perfil, desenhado. Cada tipo tem a sua silhueta:
@@ -1197,7 +1207,7 @@ function viewFleet() {
         const row = (label, value) => el('div', { class: 'vehicle-row' }, el('span', { text: label }), el('b', { text: value }));
 
         return el('div', { class: `panel vehicle${locked ? ' locked' : ''}`, style: lineVar({ id: index * 5 + 2 }) },
-            el('div', { class: 'bus-art' }, busArt(v)),
+            el('div', { class: 'bus-art' }, busPhoto(v) || busArt(v)),
             el('div', { class: 'vehicle-head' },
                 el('div', { class: 'vehicle-name', text: v.label }),
                 locked
