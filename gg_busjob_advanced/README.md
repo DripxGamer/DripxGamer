@@ -1,4 +1,4 @@
-# gg_busjob_advanced v8
+# gg_busjob_advanced v8.1
 
 Emprego de motorista de autocarro para **Qbox**, **QBCore** e **ESX**, em **7 idiomas**.
 
@@ -43,6 +43,29 @@ Ao arrancar, a consola do servidor diz qual o framework que encontrou:
 ```
 [gg_busjob_advanced] framework: es_extended
 ```
+
+## O que mudou na v8.1
+
+**Só entravam dois pela porta.** Dois erros meus, ambos na bicha:
+
+1. **Quem ficava atrás nunca tinha vez.** A entrada só era pedida quando o passageiro
+   estivesse a menos de 2,5 m da porta — mas os lugares da bicha ficavam a 0, 0,95, 1,9 e
+   2,85 m. Do terceiro em diante nunca cumpriam a condição e esperavam os 12 segundos todos.
+   Agora há uma **ordem de vez** explícita: o primeiro da bicha que ainda está à espera entra
+   a seguir, esteja onde estiver. A distância deixou de decidir fosse o que fosse.
+2. **A bicha não andava para a frente.** Cada um ficava parado no lugar onde começou, por isso
+   o quarto tinha de percorrer 4 metros quando chegava a vez dele, e não chegava a tempo.
+   Agora **a bicha avança**: à medida que os da frente entram, os de trás dão um passo em
+   frente, como numa paragem a sério.
+
+Além disso, cada passageiro tem agora um **tempo repartido** à porta
+(`tempo que sobra ÷ quantos faltam`). Antes, um que se atrapalhasse podia ocupar a porta
+18 segundos e deixar todos os outros de fora.
+
+**O meu simulador não apanhou isto** porque os bonecos andavam instantaneamente. Agora andam
+a uma velocidade a sério, e há um teste do pior caso da rota — **4 a sair e 4 a entrar na
+mesma paragem** — que verifica que entram os quatro pela porta, nenhum sentado à força, e que
+tudo cabe no tempo da paragem.
 
 ## O que mudou na v8
 
@@ -309,7 +332,7 @@ Config.Passengers = {
     seatWait = 3500,            -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
     boardSeat = 0,              -- lugar ligado à porta: é por aqui que todos entram e saem
     doors = { 1 },              -- portas que abrem. NUNCA 4 nem 5: são o capô e a mala
-    queueRadius = 2.5,          -- distância (m) à porta a que chega a vez de entrar
+    queueSpacing = 0.85,        -- espaço (m) entre cada um na bicha à porta
     enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,           -- tentativas extra se a porta estiver bloqueada
     seatQuietly = true,         -- se a porta falhar, apaga-se à porta e aparece sentado (sem salto visível)

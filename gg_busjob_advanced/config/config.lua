@@ -164,7 +164,7 @@ Config.Passengers = {
     -- Portas que abrem na paragem. 1 = porta da frente do lado do passeio.
     -- NUNCA metas 4 nem 5: no GTA são o capô e a mala. Era isso que abria a mala.
     doors = { 1 },
-    queueRadius = 2.5,             -- distância (m) à porta a que chega a vez de entrar
+    queueSpacing = 0.85,           -- espaço (m) entre cada um na bicha à porta
     enterTimeout = 9000,           -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,              -- tentativas extra se a porta estiver bloqueada
     -- Quando o jogo não consegue mesmo meter alguém pela porta a tempo:

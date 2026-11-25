@@ -403,15 +403,40 @@ function Passengers.board(bus, duration)
         local door, _, along = entrance(bus)
         local deadline = startedAt + duration - 500
 
-        -- Lugar na bicha: cada um encosta-se um pouco mais atrás, junto à porta.
-        local function queueSpot(index)
-            local back = along * (-0.95 * (index - 1))
+        -- Lugar na bicha: o primeiro à porta, os outros encostados atrás dele.
+        local spacing = cfg.queueSpacing or 0.85
+        local function queueSpot(place)
+            local back = along * (-spacing * math.min(place - 1, 4))
             return vector3(door.x + back.x, door.y + back.y, door.z)
         end
 
         while token == generation and DoesEntityExist(bus) do
             local now = GetGameTimer()
             local left = 0
+
+            -- De quem é a vez: o primeiro da bicha que ainda está à espera.
+            -- Antes exigia-se que o passageiro estivesse perto da porta, e quem
+            -- ficava mais atrás nunca cumpria isso: nunca chegava a ter vez.
+            local turn, waitingFor, place = nil, 0, 0
+            for _, state in ipairs(states) do
+                if not state.done and DoesEntityExist(state.ped) then
+                    waitingFor = waitingFor + 1
+                    if state.phase == nil or state.phase == 'queue' then
+                        if not turn then
+                            turn = state
+                        end
+                        -- A bicha anda para a frente à medida que os da frente entram.
+                        -- Sem isto, quem ficava atrás tinha de andar 5 metros quando
+                        -- chegava a vez dele, e não chegava a tempo.
+                        place = place + 1
+                        state.place = place
+                    end
+                end
+            end
+
+            -- Quanto tempo cada um pode ocupar a porta. Sem isto, um que se
+            -- atrapalhe fica lá 18 segundos e os outros ficam todos de fora.
+            local budget = math.max(2500, math.floor((deadline - now) / math.max(1, waitingFor)))
 
             for _, state in ipairs(states) do
                 if not state.done then
@@ -422,17 +447,24 @@ function Passengers.board(bus, duration)
                         local ped = state.ped
 
                         if not state.phase then
-                            -- Toda a gente caminha ao mesmo tempo até junto da porta.
+                            -- Toda a gente arranca ao mesmo tempo e forma bicha à porta.
                             -- Só a entrada em si é que é um de cada vez.
                             state.phase = 'queue'
                             state.limit = now + 12000
-                            local spot = queueSpot(state.order)
                             wakeUp(ped)
-                            TaskFollowNavMeshToCoord(ped, spot.x, spot.y, spot.z, cfg.walkSpeed, 10000, 0.6, 0, 0.0)
 
                         elseif state.phase == 'queue' then
-                            local near = distance2d(GetEntityCoords(ped), door) < (cfg.queueRadius or 4.5)
-                            if doorFree() and (near or now >= state.limit) then
+                            -- Avançou na bicha: dá um passo em frente.
+                            if state.walkedTo ~= state.place then
+                                state.walkedTo = state.place
+                                local spot = queueSpot(state.place)
+                                TaskFollowNavMeshToCoord(ped, spot.x, spot.y, spot.z, cfg.walkSpeed, 10000, 0.5, 0, 0.0)
+                            end
+
+                            -- Chega a vez quando a porta está livre e é mesmo a dele.
+                            -- A distância já não decide nada: o próprio TaskEnterVehicle
+                            -- trata de o levar os últimos metros até à porta.
+                            if doorFree() and turn == state then
                                 local final = pickSeat(bus)
                                 if final then
                                     state.final = final
@@ -440,11 +472,8 @@ function Passengers.board(bus, duration)
                                     reserved[final] = ped
                                     state.phase = 'door'
                                     state.tries = 1
-                                    state.limit = now + enterTimeout
+                                    state.limit = now + math.min(enterTimeout, budget)
                                     doorBusy = ped
-                                    if not near then
-                                        log('um passageiro não chegou à porta a tempo (ficou a %.1f m); entra na mesma', state.away)
-                                    end
                                     wakeUp(ped)
                                     TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
                                 elseif now >= startedAt + seatWait then
@@ -477,10 +506,11 @@ function Passengers.board(bus, duration)
                                 settle(ped, seat)
                             elseif now >= state.limit then
                                 state.tries = state.tries + 1
-                                if state.tries <= retries + 1 then
+                                -- Só se repete se sobrar tempo para os que vêm atrás.
+                                if state.tries <= retries + 1 and waitingFor <= 1 then
                                     ClearPedTasks(ped)
                                     TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
-                                    state.limit = now + enterTimeout
+                                    state.limit = now + math.min(enterTimeout, budget)
                                 else
                                     -- O jogo não o deixou entrar. Se ainda há lugar, entra na
                                     -- mesma: apaga-se à porta e aparece sentado. Só desaparece
@@ -612,6 +642,17 @@ function Passengers.alight(bus, fraction, duration)
             local now = GetGameTimer()
             local left = 0
 
+            local turn, waitingFor = nil, 0
+            for _, state in ipairs(states) do
+                if not state.done and DoesEntityExist(state.ped) then
+                    waitingFor = waitingFor + 1
+                    if not turn and state.phase == nil then
+                        turn = state
+                    end
+                end
+            end
+            local budget = math.max(2000, math.floor((deadline - now) / math.max(1, waitingFor)))
+
             for _, state in ipairs(states) do
                 if not state.done then
                     if not DoesEntityExist(state.ped) or not DoesEntityExist(bus) then
@@ -621,9 +662,9 @@ function Passengers.alight(bus, fraction, duration)
                         local ped = state.ped
 
                         if not state.phase then
-                            if doorFree() then
+                            if doorFree() and turn == state then
                                 state.phase = 'out'
-                                state.limit = now + exitTimeout
+                                state.limit = now + math.min(exitTimeout, budget)
                                 doorBusy = ped
                                 -- volta ao lugar da porta, por dentro
                                 if IsPedInVehicle(ped, bus, false) and state.seat ~= DOOR_SEAT
@@ -657,9 +698,9 @@ function Passengers.alight(bus, fraction, duration)
                                 state.phase = 'away'
                             elseif now >= state.limit then
                                 -- A porta não o deixou sair: segunda tentativa, mesma animação.
-                                if not state.retried then
+                                if not state.retried and waitingFor <= 1 then
                                     state.retried = true
-                                    state.limit = now + exitTimeout
+                                    state.limit = now + math.min(exitTimeout, budget)
                                     ClearPedTasks(ped)
                                     TaskLeaveVehicle(ped, bus, 0)
                                 else
