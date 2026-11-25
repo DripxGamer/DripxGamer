@@ -799,8 +799,10 @@ lib.callback.register('gg_busjob_advanced:registerBus', function(source, token, 
     if Config.GiveKeys then
         local ok, err = pcall(Config.GiveKeys, source, vehicle, session.plate)
         if not ok then
-            print(('[%s] Config.GiveKeys failed: %s'):format(GetCurrentResourceName(), err))
+            print(('[%s] Config.GiveKeys rebentou: %s'):format(GetCurrentResourceName(), tostring(err)))
         end
+    else
+        logShift('Config.GiveKeys não está definido: ninguém recebe a chave.')
     end
 
     return { ok = true }

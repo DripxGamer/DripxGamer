@@ -8,6 +8,24 @@ Passengers = {}
 
 local cfg = Config.Passengers
 
+-- Com Config.Debug ligado, a consola do jogo (F8) diz o que cada passageiro fez.
+local function log(format, ...)
+    if not Config.Debug then
+        return
+    end
+    print(('[%s] passageiros: %s'):format(GetCurrentResourceName(),
+        select('#', ...) > 0 and format:format(...) or format))
+end
+
+-- Tira o ped do cenário em que está parado. ClearPedTasks não chega: com
+-- SetBlockingOfNonTemporaryEvents(true) o cenário ignora o pedido e o
+-- passageiro fica especado no passeio. Era por isso que nem todos entravam.
+local function wakeUp(ped)
+    SetBlockingOfNonTemporaryEvents(ped, false)
+    FreezeEntityPosition(ped, false)
+    ClearPedTasksImmediately(ped)
+end
+
 local waiting = {}      -- à espera na paragem
 local onboard = {}      -- sentados no autocarro: { ped, seat }
 local leaving = {}      -- a afastar-se depois de saírem
@@ -117,6 +135,7 @@ end
 -- Passageiro sentado: fica quieto, não voa pelo para-brisas e não sai sozinho.
 local function settle(ped, seat)
     SetPedConfigFlag(ped, 32, false)
+    SetPedConfigFlag(ped, 184, true)      -- não se arrasta para outro lugar
     SetPedCanBeDraggedOut(ped, false)
     SetPedCombatAttributes(ped, 3, false)
     SetPedKeepTask(ped, true)
@@ -378,8 +397,7 @@ function Passengers.board(bus, duration)
                             state.phase = 'queue'
                             state.limit = now + 12000
                             local spot = queueSpot(state.order)
-                            FreezeEntityPosition(ped, false)
-                            ClearPedTasks(ped)
+                            wakeUp(ped)
                             TaskFollowNavMeshToCoord(ped, spot.x, spot.y, spot.z, cfg.walkSpeed, 10000, 0.6, 0, 0.0)
 
                         elseif state.phase == 'queue' then
@@ -388,12 +406,16 @@ function Passengers.board(bus, duration)
                                 local final = pickSeat(bus)
                                 if final then
                                     state.final = final
+                                    state.away = distance2d(GetEntityCoords(ped), door)
                                     reserved[final] = ped
                                     state.phase = 'door'
                                     state.tries = 1
                                     state.limit = now + enterTimeout
                                     doorBusy = ped
-                                    ClearPedTasks(ped)
+                                    if not near then
+                                        log('um passageiro não chegou à porta a tempo (ficou a %.1f m); entra na mesma', state.away)
+                                    end
+                                    wakeUp(ped)
                                     TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
                                 elseif now >= startedAt + seatWait then
                                     -- Autocarro cheio: fica à porta e desvanece-se.
@@ -404,6 +426,11 @@ function Passengers.board(bus, duration)
 
                         elseif state.phase == 'door' then
                             if IsPedInVehicle(ped, bus, false) then
+                                -- Se entrou estando longe da porta, foi o jogo que o
+                                -- teletransportou. Fica registado para se poder afinar.
+                                if state.away and state.away > 3.5 then
+                                    log('o jogo meteu um passageiro dentro a %.1f m da porta (teletransporte do motor)', state.away)
+                                end
                                 -- Já está dentro. Só agora muda de lugar: da rua não se vê.
                                 local seat = state.final
                                 if seat and seat ~= DOOR_SEAT and IsVehicleSeatFree(bus, seat) then
@@ -425,10 +452,11 @@ function Passengers.board(bus, duration)
                                     TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
                                     state.limit = now + enterTimeout
                                 else
+                                    log('um passageiro não conseguiu entrar em %d tentativas; desaparece à porta', state.tries - 1)
                                     release(state)
                                     state.phase = 'fade'
                                     state.limit = now + 5000
-                                    ClearPedTasks(ped)
+                                    wakeUp(ped)
                                     TaskFollowNavMeshToCoord(ped, door.x, door.y, door.z, cfg.walkSpeed, 6000, 1.0, 0, 0.0)
                                 end
                             end
@@ -557,6 +585,7 @@ function Passengers.alight(bus, fraction, duration)
                                     and IsVehicleSeatFree(bus, DOOR_SEAT) then
                                     SetPedIntoVehicle(ped, bus, DOOR_SEAT)
                                 end
+                                SetBlockingOfNonTemporaryEvents(ped, false)
                                 ClearPedTasks(ped)
                                 TaskLeaveVehicle(ped, bus, 0)
                             end
@@ -589,6 +618,7 @@ function Passengers.alight(bus, fraction, duration)
                                     ClearPedTasks(ped)
                                     TaskLeaveVehicle(ped, bus, 0)
                                 else
+                                    log('um passageiro não conseguiu sair pela porta; desaparece lá dentro')
                                     done(state, true)
                                 end
                             end

@@ -59,7 +59,7 @@ for index, route in ipairs(Config.Routes) do
     end
 
     -- Quanto tempo leva uma paragem normal, com a conta que o cliente usa.
-    local stopTime = math.min(Config.StopServiceTime, Config.StopServiceMin + 4 * Config.StopServicePer) / 1000
+    local stopTime = math.min(Config.StopServiceTime, Config.StopServiceMin + 6 * Config.StopServicePer) / 1000
 
     route.id = index
     route.length = length * bonuses.routeFactor

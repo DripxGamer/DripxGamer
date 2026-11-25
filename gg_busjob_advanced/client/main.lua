@@ -456,9 +456,14 @@ local function startRouteInner(routeId, model)
 
     pendingToken = nil
     protectDriver(true)
-    -- Chave do autocarro: o servidor já a deu; isto repete-a do lado do cliente para os sistemas
-    -- de chaves que só reagem aqui (qb-vehiclekeys e compatíveis).
-    TriggerEvent('vehiclekeys:client:SetOwner', result.plate)
+    -- Chave do autocarro: o servidor já tentou dá-la; isto repete do lado do cliente,
+    -- para os sistemas de chaves que só reagem aqui.
+    if Config.GiveKeysClient then
+        local ok, err = pcall(Config.GiveKeysClient, bus, result.plate)
+        if not ok then
+            print(('[%s] Config.GiveKeysClient falhou: %s'):format(GetCurrentResourceName(), tostring(err)))
+        end
+    end
     SetVehicleEngineOn(bus, true, true, false)
     routeState = {
         token = result.token,
@@ -585,8 +590,20 @@ local function serviceCurrentStop()
     SetVehicleIndicatorLights(bus, 1, true)
     SetVehicleHandbrake(bus, true)      -- travão de mão: o autocarro não pode fugir sozinho
 
-    -- A paragem dura o que precisar para a gente que entra ou sai.
-    local people = math.max(boarding, alighting, 1)
+    -- Quantos saem nesta paragem de recolha, para libertar lugares aos que entram.
+    local release = 0
+    if boarding > 0 and stopIndex > 1 then
+        local minimum = Config.Passengers.alightAtPickup or 0
+        local onboard = Passengers.count()
+        if minimum > 0 and onboard > 0 then
+            local shortfall = boarding - Passengers.freeSeats(bus)
+            release = math.min(onboard, boarding, math.max(minimum, shortfall))
+        end
+    end
+
+    -- A paragem dura o que precisar. Como entram e saem um de cada vez pela
+    -- porta, o tempo tem de contar com os dois: quem sai e quem entra.
+    local people = math.max(boarding + release, alighting, 1)
     local duration = math.min(Config.StopServiceTime,
         Config.StopServiceMin + people * Config.StopServicePer)
     nui('service:start', {
@@ -600,17 +617,10 @@ local function serviceCurrentStop()
     Passengers.beginStop()
     local freed = 0
     if boarding > 0 then
-        -- Numa paragem de recolha também sai quem ia para ali. Assim libertam-se
-        -- lugares para quem vai entrar, em vez de os novos se desvanecerem à porta.
-        -- Sai sempre o mínimo configurado e, se faltarem lugares, sai mais gente.
-        local release = Config.Passengers.alightAtPickup or 0
-        local onboard = Passengers.count()
-        if release > 0 and onboard > 0 and stopIndex > 1 then
-            local shortfall = boarding - Passengers.freeSeats(bus)
-            local leave = math.min(onboard, boarding, math.max(release, shortfall))
-            if leave > 0 then
-                freed = Passengers.alight(bus, leave / onboard, duration)
-            end
+        -- Numa paragem de recolha também sai quem ia para ali: liberta lugares
+        -- para quem entra, em vez de os novos se desvanecerem à porta.
+        if release > 0 then
+            freed = Passengers.alight(bus, release / math.max(1, Passengers.count()), duration)
         end
         Passengers.board(bus, duration)
     else

@@ -29,9 +29,12 @@ Config.FirstStopDelay = 20
 Config.StopCooldown = 8
 -- Cada paragem dura o que precisar: o mínimo, mais um tempo por pessoa, até ao máximo.
 -- Acaba sempre logo que todos entraram ou saíram.
-Config.StopServiceTime = 20000           -- ms máximos de uma paragem
+-- Entram e saem um de cada vez pela porta, por isso a paragem dura o que a
+-- gente precisar: o mínimo, mais um tempo por cada pessoa que entra ou sai.
+-- Acaba sempre logo que o último se senta ou desce.
+Config.StopServiceTime = 24000           -- ms máximos de uma paragem
 Config.StopServiceMin = 2500             -- ms mínimos
-Config.StopServicePer = 2800             -- ms por pessoa a entrar ou a sair
+Config.StopServicePer = 2400             -- ms por pessoa a entrar ou a sair
 -- Danos e multas nunca tiram mais de (1 - este valor) do pagamento base.
 -- Com 0.65, o máximo descontado é 35%.
 Config.MinimumConditionMultiplier = 0.65
@@ -139,7 +142,7 @@ Config.Passengers = {
     -- Portas que abrem na paragem. 1 = porta da frente do lado do passeio.
     -- NUNCA metas 4 nem 5: no GTA são o capô e a mala. Era isso que abria a mala.
     doors = { 1 },
-    queueRadius = 4.5,             -- distância (m) à porta a que chega a vez de entrar
+    queueRadius = 2.5,             -- distância (m) à porta a que chega a vez de entrar
     enterTimeout = 9000,           -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,              -- tentativas extra se a porta estiver bloqueada
     warpFallback = false,          -- true senta à força quem não conseguir entrar (teletransporte); false desvanece-se
@@ -243,29 +246,124 @@ Config.Levels = {
     [10] = 500000,
 }
 
--- Chaves do veículo. Corre no servidor depois de o autocarro estar registado.
--- Já dá a chave nos sistemas mais comuns; se usares outro, acrescenta aqui a tua linha.
--- `vehicle` é a entidade do autocarro no servidor e `plate` a matrícula.
+-- ─────────────────────────────────────────────────────────────
+--  Chaves do autocarro
+--  Corre no servidor logo que o autocarro está registado. Tenta todos os
+--  sistemas conhecidos e escreve na consola do servidor o que conseguiu.
+--  Se o teu não estiver aqui, acrescenta uma linha `try(...)`.
+-- ─────────────────────────────────────────────────────────────
 Config.GiveKeys = function(source, vehicle, plate)
-    local gave = false
-    local function try(resource, fn)
-        if GetResourceState(resource) == 'started' then
-            local ok, err = pcall(fn)
-            if ok then
-                gave = true
-            else
-                print(('[%s] Falhou a dar a chave com %s: %s'):format(GetCurrentResourceName(), resource, err))
+    local resource = GetCurrentResourceName()
+    local model = GetEntityModel(vehicle)
+    local gave = {}
+
+    -- Tenta uma chamada. Só conta se o recurso estiver a correr e nada rebentar.
+    local function try(name, label, fn)
+        if GetResourceState(name) ~= 'started' then
+            return false
+        end
+        local ok, err = pcall(fn)
+        if ok then
+            gave[#gave + 1] = ('%s (%s)'):format(name, label)
+            return true
+        end
+        if Config.Debug then
+            print(('[%s] chaves: %s/%s falhou -> %s'):format(resource, name, label, tostring(err)))
+        end
+        return false
+    end
+
+    -- Qbox. A assinatura mudou entre versões, por isso tentam-se as duas.
+    if GetResourceState('qbx_vehiclekeys') == 'started' then
+        local _ = try('qbx_vehiclekeys', 'GiveKeys(src, veh)', function()
+            exports.qbx_vehiclekeys:GiveKeys(source, vehicle)
+        end) or try('qbx_vehiclekeys', 'GiveKeys(src, veh, true)', function()
+            exports.qbx_vehiclekeys:GiveKeys(source, vehicle, true)
+        end)
+    end
+
+    try('qb-vehiclekeys', 'SetOwner', function()
+        TriggerClientEvent('vehiclekeys:client:SetOwner', source, plate)
+    end)
+
+    if GetResourceState('qs-vehiclekeys') == 'started' then
+        local _ = try('qs-vehiclekeys', 'GiveServerKeys', function()
+            exports['qs-vehiclekeys']:GiveServerKeys(source, plate, model, true)
+        end) or try('qs-vehiclekeys', 'GiveKeys', function()
+            exports['qs-vehiclekeys']:GiveKeys(source, plate)
+        end)
+    end
+
+    try('wasabi_carlock', 'GiveKey', function()
+        exports.wasabi_carlock:GiveKey(source, plate)
+    end)
+
+    try('Renewed-Vehiclekeys', 'addKey', function()
+        exports['Renewed-Vehiclekeys']:addKey(source, plate)
+    end)
+
+    if GetResourceState('MrNewbVehicleKeys') == 'started' then
+        local _ = try('MrNewbVehicleKeys', 'GiveKeys(src, veh)', function()
+            exports.MrNewbVehicleKeys:GiveKeys(source, vehicle)
+        end) or try('MrNewbVehicleKeys', 'GiveKeys(src, plate)', function()
+            exports.MrNewbVehicleKeys:GiveKeys(source, plate)
+        end)
+    end
+
+    try('t1ger_keys', 'GiveKeys', function()
+        exports.t1ger_keys:GiveKeys(source, plate, model)
+    end)
+
+    try('vehicles_keys', 'SetOwner', function()
+        TriggerClientEvent('vehicles_keys:client:SetOwner', source, plate)
+    end)
+
+    try('okokGarage', 'GiveKeys', function()
+        TriggerClientEvent('okokGarage:GiveKeys', source, plate)
+    end)
+
+    try('cd_garage', 'AddKeys', function()
+        TriggerClientEvent('cd_garage:AddKeys', source, plate)
+    end)
+
+    if #gave > 0 then
+        if Config.Debug then
+            print(('[%s] chaves do %s entregues por: %s'):format(resource, plate, table.concat(gave, ', ')))
+        end
+        return
+    end
+
+    -- Nenhum sistema pegou. Diz quais é que estão a correr, para se saber qual falta.
+    local running = {}
+    for index = 0, GetNumResources() - 1 do
+        local name = GetResourceByFindIndex(index)
+        if name and GetResourceState(name) == 'started' then
+            local lower = name:lower()
+            if lower:find('key') or lower:find('lock') or lower:find('garage') then
+                running[#running + 1] = name
             end
         end
     end
 
-    try('qbx_vehiclekeys', function() exports.qbx_vehiclekeys:GiveKeys(source, vehicle, true) end)
-    try('qb-vehiclekeys', function() TriggerClientEvent('vehiclekeys:client:SetOwner', source, plate) end)
-    try('qs-vehiclekeys', function() exports['qs-vehiclekeys']:GiveServerKeys(source, plate, GetEntityModel(vehicle), true) end)
-    try('wasabi_carlock', function() exports.wasabi_carlock:GiveKey(source, plate) end)
-    try('Renewed-Vehiclekeys', function() exports['Renewed-Vehiclekeys']:addKey(source, plate) end)
+    print(('[%s] NENHUM sistema de chaves respondeu. Recursos de chaves/garagem a correr: %s')
+        :format(resource, #running > 0 and table.concat(running, ', ') or 'nenhum encontrado'))
+    print(('[%s] Acrescenta o teu em Config.GiveKeys, em config/config.lua.'):format(resource))
+end
 
-    if not gave then
-        print(('[%s] Nenhum sistema de chaves encontrado. Edita Config.GiveKeys em config/config.lua.'):format(GetCurrentResourceName()))
+-- Lado do cliente, para os sistemas que só reagem aqui. Corre logo a seguir.
+Config.GiveKeysClient = function(vehicle, plate)
+    local function try(name, fn)
+        if GetResourceState(name) == 'started' then
+            pcall(fn)
+        end
     end
+
+    -- qb-vehiclekeys e compatíveis ouvem este evento no cliente
+    TriggerEvent('vehiclekeys:client:SetOwner', plate)
+    TriggerEvent('vehicles_keys:client:SetOwner', plate)
+
+    try('qbx_vehiclekeys', function() exports.qbx_vehiclekeys:GiveKeys(vehicle) end)
+    try('qs-vehiclekeys', function()
+        exports['qs-vehiclekeys']:GiveKeys(plate, GetEntityModel(vehicle), true)
+    end)
 end

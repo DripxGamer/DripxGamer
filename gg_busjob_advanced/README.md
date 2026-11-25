@@ -1,4 +1,4 @@
-# gg_busjob_advanced v7.2
+# gg_busjob_advanced v7.3
 
 Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
 
@@ -37,6 +37,42 @@ setr gg_busjob_advanced:locale pt          # pt | pt-br | en | es | fr | de | it
 setr gg_busjob_advanced:framework auto     # auto | qbx_core | qb-core
 setr gg_busjob_advanced:speedUnit kmh      # kmh | mph
 ```
+
+## O que mudou na v7.3
+
+1. **Passageiros que nem chegavam a andar.** Ficam parados num cenário
+   (`WORLD_HUMAN_STAND_IMPATIENT`) com os eventos bloqueados, e nesse estado o
+   `ClearPedTasks` é só um **pedido**: o cenário ignora-o. Por isso havia passageiros que
+   nunca saíam do passeio e acabavam por desaparecer. Agora desbloqueiam-se os eventos e
+   usa-se `ClearPedTasksImmediately`, que corta mesmo.
+2. **A entrada só é pedida à porta.** Antes bastava estar a 4,5 m; agora são 2,5 m, por isso
+   o jogo tem muito menos margem para decidir teletransportá-los.
+3. **O script diz-te o que se passou.** Com `Config.Debug = true`, a consola do jogo (F8)
+   escreve quando um passageiro não chega à porta, quando não consegue entrar, e **quando foi
+   o próprio motor do jogo a metê-lo lá dentro à força** (com a distância a que estava).
+   Se ainda acontecer, essas linhas dizem exatamente onde apertar.
+4. **Chaves.** O `Config.GiveKeys` foi refeito: tenta `qbx_vehiclekeys` (as duas assinaturas,
+   que mudaram entre versões), `qb-vehiclekeys`, `qs-vehiclekeys` (duas), `wasabi_carlock`,
+   `Renewed-Vehiclekeys`, `MrNewbVehicleKeys` (duas), `t1ger_keys`, `vehicles_keys`,
+   `okokGarage` e `cd_garage`. Escreve na consola do **servidor** qual é que pegou e, se
+   nenhum pegar, **lista os recursos de chaves/garagem que tens a correr** para saberes o que
+   falta acrescentar. Há agora também um `Config.GiveKeysClient` para os sistemas que só
+   reagem do lado do cliente.
+5. **Paragens com o tempo certo.** Como entram e saem um de cada vez, o tempo da paragem
+   passou a contar com os dois: quem sai mais quem entra. Antes contava só um dos lados e o
+   último a entrar era cortado pelo fim do tempo.
+
+### Se a chave continuar a não aparecer
+
+Põe `Config.Debug = true` (já vem ligado), começa um turno e olha para a consola do
+**servidor**. Vais ver uma destas:
+
+```
+[gg_busjob_advanced] chaves do BUS01234 entregues por: qbx_vehiclekeys (GiveKeys(src, veh))
+[gg_busjob_advanced] NENHUM sistema de chaves respondeu. Recursos de chaves/garagem a correr: xyz_keys
+```
+
+A segunda linha diz-te o nome do teu sistema. Acrescenta-o em `Config.GiveKeys`.
 
 ## O que mudou na v7.2
 
@@ -207,9 +243,9 @@ Está tudo em `Config.Bonuses` e `Config.Penalties` (`config/config.lua`). Para 
 Ajustes dos passageiros (`Config.Passengers`) e das paragens:
 
 ```lua
-Config.StopServiceTime = 20000  -- ms máximos de uma paragem
+Config.StopServiceTime = 24000  -- ms máximos de uma paragem
 Config.StopServiceMin  = 2500   -- ms mínimos
-Config.StopServicePer  = 2800   -- ms por pessoa a entrar ou a sair
+Config.StopServicePer  = 2400   -- ms por pessoa a entrar ou a sair
 
 Config.Return = {               -- entrega do autocarro: é aqui que a rota fecha e se recebe
     enabled = true,
@@ -223,7 +259,7 @@ Config.Passengers = {
     seatWait = 3500,            -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
     boardSeat = 0,              -- lugar ligado à porta: é por aqui que todos entram e saem
     doors = { 1 },              -- portas que abrem. NUNCA 4 nem 5: são o capô e a mala
-    queueRadius = 4.5,          -- distância (m) à porta a que chega a vez de entrar
+    queueRadius = 2.5,          -- distância (m) à porta a que chega a vez de entrar
     enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,           -- tentativas extra se a porta estiver bloqueada
     warpFallback = false,       -- true senta à força quem não conseguir (teletransporte); false desvanece-se
@@ -257,7 +293,13 @@ Config.UI.theme    = 'amber'                   -- amber | emerald | azure | viol
 
 A cor que o jogador escolhe no terminal fica guardada no próprio jogo dele e tem prioridade sobre `Config.UI.theme`, que só serve de cor inicial.
 
-`Config.GiveKeys` corre no servidor depois de o autocarro estar registado e dá a chave ao jogador. Já traz `qbx_vehiclekeys`, `qb-vehiclekeys`, `qs-vehiclekeys`, `wasabi_carlock` e `Renewed-Vehiclekeys`: tenta os que estiverem a correr e escreve na consola do servidor o que fez (ou que não encontrou nenhum). Se usas outro sistema, acrescenta uma linha `try('o_teu_recurso', function() ... end)` com o export dele.
+`Config.GiveKeys` corre no servidor depois de o autocarro estar registado. Tenta `qbx_vehiclekeys`
+(as duas assinaturas), `qb-vehiclekeys`, `qs-vehiclekeys` (duas), `wasabi_carlock`,
+`Renewed-Vehiclekeys`, `MrNewbVehicleKeys` (duas), `t1ger_keys`, `vehicles_keys`, `okokGarage` e
+`cd_garage`, e escreve na consola do servidor qual pegou. Se nenhum pegar, lista os recursos de
+chaves/garagem que estão a correr, para saberes qual acrescentar com uma linha
+`try('o_teu_recurso', 'o_que_faz', function() ... end)`. `Config.GiveKeysClient` faz o mesmo do
+lado do cliente, para os sistemas que só reagem aí.
 
 ## Idiomas
 
