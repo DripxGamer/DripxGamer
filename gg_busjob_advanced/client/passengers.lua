@@ -143,13 +143,32 @@ local function settle(ped, seat)
     onboard[#onboard + 1] = { ped = ped, seat = seat }
 end
 
--- Último recurso: senta-o à força.
-local function warpIn(ped, bus, seat)
+-- Último recurso, quando o jogo não consegue mesmo meter o passageiro pela porta.
+-- Em vez de o atirar da rua para o banco à vista de toda a gente, ele apaga-se por
+-- um instante à porta e aparece já sentado. Nunca se vê ninguém a teletransportar-se.
+local function seatQuietly(ped, bus, seat)
+    if not DoesEntityExist(ped) or not DoesEntityExist(bus) then
+        return
+    end
+    local token = generation
+    SetEntityAlpha(ped, 0, false)
     FreezeEntityPosition(ped, false)
     ClearPedTasksImmediately(ped)
-    ResetEntityAlpha(ped)
     SetPedIntoVehicle(ped, bus, seat)
     settle(ped, seat)
+
+    CreateThread(function()
+        for alpha = 0, 255, 51 do
+            if token ~= generation or not DoesEntityExist(ped) then
+                return
+            end
+            SetEntityAlpha(ped, alpha, false)
+            Wait(45)
+        end
+        if DoesEntityExist(ped) then
+            ResetEntityAlpha(ped)
+        end
+    end)
 end
 
 local function startJob()
@@ -354,11 +373,22 @@ function Passengers.board(bus, duration)
         if token == generation then
             for _, state in ipairs(states) do
                 if not state.done and DoesEntityExist(state.ped) then
-                    -- Último recurso, desligado por omissão: nada de teletransportes.
-                    if cfg.warpFallback and state.final and vehicle and DoesEntityExist(vehicle)
-                        and IsVehicleSeatFree(vehicle, state.final) then
+                    -- Ficou a meio quando a paragem acabou. Se ainda tem lugar,
+                    -- senta-se sem se ver; senão, desaparece à porta.
+                    local seat = state.final
+                    if seat == nil and vehicle and DoesEntityExist(vehicle) then
+                        seat = pickSeat(vehicle)
+                    end
+                    if cfg.seatQuietly ~= false and seat and vehicle and DoesEntityExist(vehicle)
+                        and IsVehicleSeatFree(vehicle, seat) then
+                        log('um passageiro ficou a meio da entrada; senta-se sem se ver')
                         state.done = true
-                        warpIn(state.ped, vehicle, state.final)
+                        if doorBusy == state.ped then
+                            doorBusy = nil
+                        end
+                        reserved[seat] = state.ped
+                        state.final = seat
+                        seatQuietly(state.ped, vehicle, seat)
                     else
                         close(state, true)
                     end
@@ -452,12 +482,27 @@ function Passengers.board(bus, duration)
                                     TaskEnterVehicle(ped, bus, -1, DOOR_SEAT, cfg.walkSpeed, 1, 0)
                                     state.limit = now + enterTimeout
                                 else
-                                    log('um passageiro não conseguiu entrar em %d tentativas; desaparece à porta', state.tries - 1)
-                                    release(state)
-                                    state.phase = 'fade'
-                                    state.limit = now + 5000
-                                    wakeUp(ped)
-                                    TaskFollowNavMeshToCoord(ped, door.x, door.y, door.z, cfg.walkSpeed, 6000, 1.0, 0, 0.0)
+                                    -- O jogo não o deixou entrar. Se ainda há lugar, entra na
+                                    -- mesma: apaga-se à porta e aparece sentado. Só desaparece
+                                    -- de vez se o autocarro estiver mesmo cheio.
+                                    local seat = state.final or pickSeat(bus)
+                                    if cfg.seatQuietly ~= false and seat and IsVehicleSeatFree(bus, seat) then
+                                        log('um passageiro não conseguiu entrar em %d tentativas; senta-se sem se ver', state.tries - 1)
+                                        state.done = true
+                                        state.final = seat
+                                        reserved[seat] = ped
+                                        if doorBusy == ped then
+                                            doorBusy = nil
+                                        end
+                                        seatQuietly(ped, bus, seat)
+                                    else
+                                        log('um passageiro não conseguiu entrar e o autocarro está cheio; desaparece à porta')
+                                        release(state)
+                                        state.phase = 'fade'
+                                        state.limit = now + 5000
+                                        wakeUp(ped)
+                                        TaskFollowNavMeshToCoord(ped, door.x, door.y, door.z, cfg.walkSpeed, 6000, 1.0, 0, 0.0)
+                                    end
                                 end
                             end
 

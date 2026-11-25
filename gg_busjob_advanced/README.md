@@ -1,6 +1,6 @@
-# gg_busjob_advanced v7.3
+# gg_busjob_advanced v8
 
-Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
+Emprego de motorista de autocarro para **Qbox**, **QBCore** e **ESX**, em **7 idiomas**.
 
 - Terminal desenhado como **sinalética de transportes**: sem uma única fotografia. O que identifica
   cada rota é o número, o destino e o **traçado real da linha**, desenhado a partir das coordenadas
@@ -21,12 +21,12 @@ Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
 
 1. Copia a pasta `gg_busjob_advanced` para `resources/`.
 2. Garante que `ox_lib` e `oxmysql` arrancam **antes** deste recurso.
-3. No `server.cfg`:
+3. No `server.cfg`, depois do teu framework (`qbx_core`, `qb-core` ou `es_extended`):
 
 ```cfg
 ensure ox_lib
 ensure oxmysql
-ensure qbx_core
+ensure qbx_core            # ou qb-core, ou es_extended
 ensure gg_busjob_advanced
 ```
 
@@ -34,9 +34,59 @@ ensure gg_busjob_advanced
 
 ```cfg
 setr gg_busjob_advanced:locale pt          # pt | pt-br | en | es | fr | de | it
-setr gg_busjob_advanced:framework auto     # auto | qbx_core | qb-core
+setr gg_busjob_advanced:framework auto     # auto | qbx_core | qb-core | es_extended
 setr gg_busjob_advanced:speedUnit kmh      # kmh | mph
 ```
+
+Ao arrancar, a consola do servidor diz qual o framework que encontrou:
+
+```
+[gg_busjob_advanced] framework: es_extended
+```
+
+## O que mudou na v8
+
+### ESX
+
+O recurso passou a correr em **Qbox, QBCore e ESX**. Não tens de mudar nada: em `auto`
+procura por esta ordem `qbx_core`, `qb-core`, `es_extended`, e escreve na consola qual
+encontrou. Para forçar:
+
+```cfg
+setr gg_busjob_advanced:framework es_extended   # auto | qbx_core | qb-core | es_extended
+```
+
+No ESX o identificador do personagem é o `identifier` em vez do `citizenid`, o nome vem do
+`xPlayer`, e o pagamento usa `addAccountMoney('bank')` ou `addMoney` conforme
+`Config.PaymentAccount` for `bank` ou `cash`. O ESX também obtém o objeto de duas maneiras
+diferentes consoante a versão: tentam-se as duas.
+
+**Atenção:** o recurso usa `oxmysql`. Quase todos os servidores ESX já o têm; se estiveres em
+`mysql-async`, acrescenta o `oxmysql` (podem correr lado a lado).
+
+A simulação corre agora **a bateria toda duas vezes, uma em Qbox e outra em ESX**: rota
+completa, pagamento, recusa do banco, fallback para dinheiro vivo e chaves.
+
+### Idiomas
+
+Já eram 7 e continuam: **pt, pt-br, en, es, fr, de, it**. O que mudou é que deixou de assumir
+português: se não disseres nada, segue o idioma do ESX ou do QB (`esx:locale`, `qb_locale`) e
+só depois inglês. Para escolher:
+
+```cfg
+setr gg_busjob_advanced:locale pt     # pt | pt-br | en | es | fr | de | it
+```
+
+Aceita maiúsculas e underscore (`PT_BR` também serve). Se faltar uma frase num idioma, cai
+para inglês. Os textos estão todos em `config/locales.lua`.
+
+### Passageiros: ninguém fica de fora e ninguém salta à vista
+
+Já entravam pela porta, mas quando o motor do jogo não conseguia meter alguém lá dentro a
+tempo, esse passageiro **desaparecia** — era isso que fazia faltarem passageiros. Agora, se a
+entrada pela porta falhar e ainda houver lugar, ele **apaga-se um instante à porta e aparece
+já sentado**. Não é um salto à vista: é um corte, como numa montagem. Só desaparece de vez se
+o autocarro estiver mesmo cheio. Controla-se em `Config.Passengers.seatQuietly`.
 
 ## O que mudou na v7.3
 
@@ -262,7 +312,7 @@ Config.Passengers = {
     queueRadius = 2.5,          -- distância (m) à porta a que chega a vez de entrar
     enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,           -- tentativas extra se a porta estiver bloqueada
-    warpFallback = false,       -- true senta à força quem não conseguir (teletransporte); false desvanece-se
+    seatQuietly = true,         -- se a porta falhar, apaga-se à porta e aparece sentado (sem salto visível)
     doorBone = 'door_pside_f',  -- osso da porta: é aí que se forma a bicha
     doorOffset = 1.0,           -- distância (m) à porta onde a bicha se encosta
     walkSpeed = 1.5,            -- 1.0 caminhar, 2.0 correr

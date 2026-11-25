@@ -7,41 +7,96 @@ local starting = {}
 local databaseReady = false
 local frameworkName
 local qbCore
+local esx
 local ranking = { at = 0, rows = {} }
 
 -- ─────────────────────────────────────────────────────────────
 --  Framework
 -- ─────────────────────────────────────────────────────────────
+-- Ordem em que se procura o framework quando Config.Framework é 'auto'.
+local FRAMEWORKS = { 'qbx_core', 'qb-core', 'es_extended' }
+
 local function detectFramework()
-    if Config.Framework == 'qbx_core' or Config.Framework == 'qb-core' then
-        frameworkName = Config.Framework
-    elseif GetResourceState('qbx_core') == 'started' then
-        frameworkName = 'qbx_core'
-    elseif GetResourceState('qb-core') == 'started' then
-        frameworkName = 'qb-core'
+    local wanted = Config.Framework
+    if wanted and wanted ~= 'auto' then
+        frameworkName = wanted
     else
-        error(('[%s] Start qbx_core or qb-core, or set gg_busjob_advanced:framework.'):format(GetCurrentResourceName()))
+        for _, name in ipairs(FRAMEWORKS) do
+            if GetResourceState(name) == 'started' then
+                frameworkName = name
+                break
+            end
+        end
+    end
+
+    if not frameworkName then
+        error(('[%s] Não encontrei qbx_core, qb-core nem es_extended. Arranca um deles, ou define o convar gg_busjob_advanced:framework.'):format(GetCurrentResourceName()))
     end
 
     if frameworkName == 'qb-core' then
         qbCore = exports['qb-core']:GetCoreObject()
+    elseif frameworkName == 'es_extended' then
+        -- O ESX mudou de maneira de se obter ao longo das versões: tentam-se as duas.
+        local ok, core = pcall(function() return exports['es_extended']:getSharedObject() end)
+        if not ok or not core then
+            ok, core = pcall(function()
+                local object
+                TriggerEvent('esx:getSharedObject', function(obj) object = obj end)
+                return object
+            end)
+        end
+        if not core then
+            error(('[%s] es_extended está a correr mas não consegui obter o objeto do ESX.'):format(GetCurrentResourceName()))
+        end
+        esx = core
     end
+
+    print(('[%s] framework: %s'):format(GetCurrentResourceName(), frameworkName))
 end
 
 local function getPlayer(source)
     if frameworkName == 'qbx_core' then
         return exports.qbx_core:GetPlayer(source)
     end
-    return qbCore.Functions.GetPlayer(source)
+    if frameworkName == 'es_extended' then
+        return esx and esx.GetPlayerFromId(source) or nil
+    end
+    return qbCore and qbCore.Functions.GetPlayer(source) or nil
 end
 
+-- Identificador do personagem. No QB é o citizenid, no ESX é o identifier.
 local function getIdentifier(player)
-    local data = player and player.PlayerData
+    if not player then
+        return nil
+    end
+    if frameworkName == 'es_extended' then
+        return player.identifier and tostring(player.identifier) or nil
+    end
+    local data = player.PlayerData
     return data and data.citizenid and tostring(data.citizenid) or nil
 end
 
 local function getCharacterName(player)
-    local data = player and player.PlayerData
+    if not player then
+        return 'Driver'
+    end
+
+    if frameworkName == 'es_extended' then
+        local first = player.variables and player.variables.firstName
+        local last = player.variables and player.variables.lastName
+        if not first and player.getName then
+            local ok, full = pcall(player.getName, player)
+            if ok and type(full) == 'string' and full ~= '' then
+                return full:sub(1, 48)
+            end
+        end
+        if first then
+            return (('%s %s'):format(first, last or ''):gsub('%s+$', '')):sub(1, 48)
+        end
+        return player.name and tostring(player.name):sub(1, 48) or 'Driver'
+    end
+
+    local data = player.PlayerData
     local info = data and data.charinfo
     if info and info.firstname then
         local name = ('%s %s'):format(info.firstname, info.lastname or ''):gsub('%s+$', '')
@@ -233,6 +288,26 @@ local MONEY_ACCOUNTS = { Config.PaymentAccount, Config.PaymentAccount == 'cash' 
 -- Uma tentativa numa conta. Tenta a API do objeto do jogador e, no Qbox, também o export.
 local function tryAddMoney(source, account, amount, reason)
     local player = getPlayer(source)
+
+    -- ESX: 'bank' é uma conta, 'cash' é o dinheiro na mão.
+    if frameworkName == 'es_extended' and player then
+        if account == 'cash' or account == 'money' then
+            if type(player.addMoney) == 'function' then
+                local called, err = pcall(player.addMoney, player, amount, reason)
+                if called then
+                    return true, 'xPlayer.addMoney'
+                end
+                logShift('ESX addMoney deu erro: %s', tostring(err))
+            end
+        elseif type(player.addAccountMoney) == 'function' then
+            local called, err = pcall(player.addAccountMoney, player, account, amount, reason)
+            if called then
+                return true, ('xPlayer.addAccountMoney(%s)'):format(account)
+            end
+            logShift('ESX addAccountMoney(%s) deu erro: %s', account, tostring(err))
+        end
+        return false
+    end
 
     if player and player.Functions and type(player.Functions.AddMoney) == 'function' then
         local called, result = pcall(player.Functions.AddMoney, account, amount, reason)

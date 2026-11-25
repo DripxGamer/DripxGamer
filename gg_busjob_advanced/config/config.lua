@@ -3,8 +3,30 @@ Config = {}
 -- ─────────────────────────────────────────────────────────────
 --  Geral
 -- ─────────────────────────────────────────────────────────────
-Config.Locale = (GetConvar('gg_busjob_advanced:locale', 'pt'):lower():gsub('_', '-'))  -- pt | pt-br | en | es | fr | de | it
-Config.Framework = GetConvar('gg_busjob_advanced:framework', 'auto')    -- auto | qbx_core | qb-core
+-- ─────────────────────────────────────────────────────────────
+--  Idioma: pt | pt-br | en | es | fr | de | it
+--  Muda aqui, ou no server.cfg com:  setr gg_busjob_advanced:locale en
+--  Se não puseres nada, segue o idioma do ESX ou do QB, e só depois inglês.
+-- ─────────────────────────────────────────────────────────────
+local function pickLocale()
+    local mine = GetConvar('gg_busjob_advanced:locale', '')
+    if mine ~= '' then
+        return mine
+    end
+    for _, convar in ipairs({ 'esx:locale', 'esx_locale', 'qb_locale', 'locale' }) do
+        local value = GetConvar(convar, '')
+        if value ~= '' then
+            return value
+        end
+    end
+    return 'en'
+end
+
+Config.Locale = (pickLocale():lower():gsub('_', '-'))
+
+-- auto | qbx_core | qb-core | es_extended
+-- Em 'auto' procura por esta ordem: qbx_core, qb-core, es_extended.
+Config.Framework = GetConvar('gg_busjob_advanced:framework', 'auto')
 Config.SpeedUnit = GetConvar('gg_busjob_advanced:speedUnit', 'kmh')     -- kmh | mph
 Config.Currency = '$'
 Config.PaymentAccount = 'bank'                                          -- bank | cash
@@ -145,7 +167,10 @@ Config.Passengers = {
     queueRadius = 2.5,             -- distância (m) à porta a que chega a vez de entrar
     enterTimeout = 9000,           -- ms que o jogo tem para meter um passageiro dentro
     enterRetries = 1,              -- tentativas extra se a porta estiver bloqueada
-    warpFallback = false,          -- true senta à força quem não conseguir entrar (teletransporte); false desvanece-se
+    -- Quando o jogo não consegue mesmo meter alguém pela porta a tempo:
+    -- true (por omissão) apaga-o um instante à porta e ele aparece já sentado,
+    -- sem se ver nenhum salto; false deixa-o simplesmente desaparecer à porta.
+    seatQuietly = true,
     doorBone = 'door_pside_f',     -- osso da porta de entrada: é aí que se forma a bicha
     doorOffset = 1.0,              -- distância (m) à porta onde a bicha se encosta
     walkSpeed = 1.5,               -- 1.0 caminhar, 2.0 correr

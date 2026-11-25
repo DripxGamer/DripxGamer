@@ -4,8 +4,8 @@ lua54 'yes'
 
 name 'gg_busjob_advanced'
 author 'Custom'
-description 'Bus job for QBCore and Qbox: terminal UI (workers, routes, history), visible passengers, levels, fines, exit timer, driver ranking and a payout path that can never drop your money'
-version '7.3.0'
+description 'Bus job for Qbox, QBCore and ESX in 7 languages: terminal UI (workers, routes, history), passengers that board through the door, levels, fines, garage hand-in and a payout path that can never drop your money'
+version '8.0.0'
 
 ui_page 'web/index.html'
 
