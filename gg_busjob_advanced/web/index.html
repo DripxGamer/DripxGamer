@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GG Bus Job</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Avisos -->
+    <div id="toasts" aria-live="polite"></div>
+
+    <!-- Contagem decrescente quando o motorista sai do autocarro -->
+    <div id="exit" class="exit" hidden role="alert">
+        <span class="exit-num" id="exit-num"></span>
+        <span class="exit-body">
+            <span class="exit-title" id="exit-title"></span>
+            <span class="exit-sub" id="exit-sub"></span>
+        </span>
+    </div>
+
+    <!-- Aviso de interação ao pé do terminal / da paragem -->
+    <div id="prompt" class="prompt" hidden>
+        <span class="keycap" id="prompt-key"></span>
+        <span class="prompt-body">
+            <span class="prompt-text" id="prompt-text"></span>
+            <span class="prompt-sub" id="prompt-sub"></span>
+        </span>
+    </div>
+
+    <!-- Embarque / desembarque -->
+    <div id="service" class="service" hidden>
+        <div class="service-head">
+            <span class="service-title" id="service-title"></span>
+            <span class="service-count" id="service-count"></span>
+        </div>
+        <div class="service-track"><div class="service-fill" id="service-fill"></div></div>
+        <div class="service-foot">
+            <span class="keycap keycap-small" id="service-key"></span>
+            <span id="service-cancel"></span>
+        </div>
+    </div>
+
+    <!-- Painel da rota (lista de paragens como num autocarro) -->
+    <aside id="hud" class="hud" hidden></aside>
+
+    <!-- Bilhete final -->
+    <div id="ticket" class="ticket-wrap" hidden></div>
+
+    <!-- Terminal -->
+    <div id="terminal" class="terminal" hidden>
+        <div class="scene" aria-hidden="true">
+            <svg class="skyline" id="skyline" viewBox="0 0 1600 360" preserveAspectRatio="xMidYMax slice"></svg>
+            <div class="road"></div>
+        </div>
+        <div class="window" id="window"></div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
