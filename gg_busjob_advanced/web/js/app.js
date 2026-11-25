@@ -233,9 +233,17 @@ const TABS = [
 ];
 
 const route = (id) => S.routes.find((r) => r.id === id);
-// Foto da rota: a que puseres em route.image, senão web/img/routes/<id>.webp, senão a padrão.
-// `base` é '../' quando o valor vai para uma variável CSS (o url() resolve a partir de css/).
-const routeImage = (r, base = '') => `url('${base}${r && r.image ? r.image : `img/routes/${r ? r.id : 0}.webp`}'), url('${base}img/routes/default.webp')`;
+
+// Cada linha tem a sua cor, como numa rede de metro. Não há fotografias:
+// o que identifica uma rota é o número, o destino e o traçado dela.
+// Tons de mapa de transportes impresso: nenhum compete com a cor do painel.
+const LINES = [
+    '212, 94, 84', '198, 120, 62', '164, 144, 68', '126, 164, 88', '74, 160, 126',
+    '62, 148, 162', '76, 128, 188', '100, 112, 178', '136, 106, 168', '168, 98, 146',
+    '190, 100, 112', '112, 132, 148', '150, 130, 88', '88, 150, 112', '178, 112, 78',
+];
+const lineRgb = (r) => LINES[((r && r.id ? r.id : 1) - 1) % LINES.length];
+const lineVar = (r) => ({ '--line-rgb': lineRgb(r) });
 const rankKey = (level) => `rank_t${tier(level)}`;
 
 function openTerminal(data) {
@@ -334,11 +342,8 @@ function animateCounts() {
 /* ── Cartaz (esquerda): ilustração, motorista e rota escolhida ── */
 function buildPoster() {
     $('#poster').replaceChildren(
-        el('div', { class: 'poster-art', 'aria-hidden': 'true' }, el('i', { class: 'poster-glow' })),
+        el('div', { class: 'poster-grain', 'aria-hidden': 'true' }),
         el('div', { class: 'poster-driver', id: 'poster-driver' }),
-        el('div', { class: 'poster-title' },
-            el('h1', { text: t('poster_title') }),
-            el('p', { text: t('poster_sub') })),
         el('div', { class: 'poster-card', id: 'poster-card' }),
     );
     updatePosterDriver();
@@ -377,21 +382,51 @@ function renderPosterCard() {
 
     const fact = (value, label) => el('div', { class: 'fact' }, el('b', { text: value }), el('span', { text: label }));
     host.replaceChildren(
-        el('div', { class: `pc t${tier(r.level)}` },
-            el('div', { class: 'pc-photo', style: { backgroundImage: routeImage(r) } },
-                el('span', { class: 'pc-shade' }),
-                el('span', { class: 'line-badge', text: r.id }),
-                el('span', { class: 'pc-tag', text: t('poster_selected') }),
-                el('div', { class: 'pc-title' },
-                    el('div', { class: 'pc-name', text: r.label }),
-                    el('div', { class: 'pc-area', text: r.area }))),
-            routeMap(r, true),
+        el('div', { class: 'pc', style: lineVar(r) },
+            // Painel de destino, como o letreiro à frente do autocarro
+            el('div', { class: 'blind' },
+                el('span', { class: 'blind-no', text: r.id }),
+                el('div', { class: 'blind-main' },
+                    el('div', { class: 'blind-name', text: r.label }),
+                    el('div', { class: 'blind-area' },
+                        el('span', { text: r.area }),
+                        el('em', { text: t('poster_selected') })))),
+            el('div', { class: 'pc-map' }, routeMap(r, true)),
             el('div', { class: 'pc-facts' },
                 fact(money(r.money), t('route_pay')),
                 fact(`${num(r.xp)} XP`, t('route_xp')),
                 fact(`${km(r.length)} km`, t('route_stops_n', r.stops.length)),
                 fact(clock(r.par), t('route_par')))),
     );
+}
+
+// Faixa de paragens, como a que está por cima das portas do autocarro.
+// Último círculo cheio = destino; o quadrado no fim = garagem.
+function lineStrip(r) {
+    const stages = r.stops.length + (r.garage ? 1 : 0);
+    const W = 268;
+    const H = 18;
+    const gap = stages > 1 ? (W - 14) / (stages - 1) : 0;
+    const y = H / 2;
+    const parts = [svg('line', { x1: 7, y1: y, x2: 7 + gap * (stages - 1), y2: y, class: 'strip-rail' })];
+
+    for (let i = 0; i < stages; i += 1) {
+        const x = 7 + gap * i;
+        const stop = r.stops[i];
+        const isGarage = r.garage && i === stages - 1;
+        const isFinal = !isGarage && i === r.stops.length - 1;
+        if (isGarage) {
+            parts.push(svg('rect', { x: x - 5, y: y - 5, width: 10, height: 10, rx: 2, class: 'strip-garage' }));
+        } else if (isFinal) {
+            parts.push(svg('circle', { cx: x, cy: y, r: 5.5, class: 'strip-final' }));
+        } else if (stop && stop.boarding > 0) {
+            parts.push(svg('circle', { cx: x, cy: y, r: 4, class: 'strip-pick' }));
+        } else {
+            parts.push(svg('circle', { cx: x, cy: y, r: 4, class: 'strip-drop' }));
+        }
+    }
+    return svg('svg', { class: 'strip', viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'xMinYMid meet',
+        'aria-hidden': 'true' }, ...parts);
 }
 
 /* ── Cabeçalho: painel LED + separadores ───────────────────── */
@@ -403,7 +438,7 @@ function renderHead(print) {
     if (S.tab === 'work') {
         const selected = route(S.selRoute);
         badge = selected
-            ? el('span', { class: `line-badge t${tier(selected.level)}`, text: selected.id })
+            ? el('span', { class: 'line-badge', style: lineVar(selected), text: selected.id })
             : el('span', { class: 'line-badge t1' }, icon('route'));
         text = selected ? selected.label : t('board_dashboard', firstName(p.name));
     } else if (S.tab === 'fleet') {
@@ -491,7 +526,7 @@ function renderWorkers() {
     host.replaceChildren(...S.workers.map((w, i) => {
         const r = route(w.routeId);
         const done = clamp01((Math.max(1, w.stop) - 1) / Math.max(1, w.total));
-        return el('div', { class: `worker t${r ? tier(r.level) : 1}${w.me ? ' me' : ''}`, style: { '--i': i } },
+        return el('div', { class: `worker${w.me ? ' me' : ''}`, style: { ...lineVar(r || { id: w.routeId }), '--i': i } },
             el('span', { class: 'avatar', text: initials(w.name) }),
             el('div', { class: 'w-main' },
                 el('div', { class: 'w-name' }, w.name, w.me ? el('em', { text: t('rank_you') }) : null),
@@ -515,8 +550,7 @@ function unlockCard() {
     const progress = clamp01(((p.experience || 0) - (p.levelExperience || 0)) / span);
     const adjacent = next.level === p.level + 1;
 
-    return el('div', { class: `fill-card next-unlock t${tier(next.level)}` },
-        el('span', { class: 'fc-photo', style: { backgroundImage: routeImage(next) } }),
+    return el('div', { class: 'fill-card next-unlock', style: lineVar(next) },
         el('span', { class: 'fc-lock' }, icon('lock')),
         el('div', { class: 'fc-eyebrow', text: t('dash_unlocks', next.level) }),
         el('div', { class: 'fc-title' }, el('span', { class: 'line-badge', text: next.id }), el('b', { text: next.label })),
@@ -567,7 +601,7 @@ function renderHistory() {
         const r = route(h.routeId);
         const stars = el('div', { class: 'mini-stars' },
             [1, 2, 3, 4, 5].map((n) => el('span', { class: n <= h.rating ? 'on' : '' }, icon('star', 'solid'))));
-        return el('div', { class: `hrow t${r ? tier(r.level) : 1}`, style: { '--i': i } },
+        return el('div', { class: 'hrow', style: { ...lineVar(r || { id: h.routeId }), '--i': i } },
             el('span', { class: 'line-badge', text: h.routeId }),
             el('div', { class: 'h-main' },
                 el('div', { class: 'h-name', text: h.label || (r ? r.label : '') }),
@@ -617,28 +651,25 @@ function routeList() {
     const cards = S.routes.map((r, i) => {
         const locked = r.level > p.level;
         return el('button', {
-            class: `rcard t${tier(r.level)}${locked ? ' locked' : ''}${r.id === S.selRoute ? ' sel' : ''}`,
+            class: `rcard${locked ? ' locked' : ''}${r.id === S.selRoute ? ' sel' : ''}`,
             'data-id': r.id,
-            style: { '--i': i },
+            style: { ...lineVar(r), '--i': i },
             onclick: () => selectRoute(r.id),
         },
-            el('span', { class: 'rc-photo', style: { backgroundImage: routeImage(r) } }),
-            el('span', { class: 'rc-shade' }),
             el('div', { class: 'rc-top' },
                 el('span', { class: 'line-badge', text: r.id }),
-                locked
-                    ? el('span', { class: 'rc-tag lock' }, icon('lock'), t('dash_level', r.level))
-                    : el('span', { class: 'rc-tag' }, t('dash_level', r.level)),
-                el('span', { class: 'rc-tick' }, icon('check'))),
-            el('div', { class: 'rc-info' },
                 el('div', { class: 'rc-main' },
                     el('div', { class: 'rc-name', text: r.label }),
-                    el('div', { class: 'rc-meta' },
-                        el('span', { text: t('route_stops_n', r.stops.length) }),
-                        el('span', { text: `${km(r.length)} km` }))),
+                    el('div', { class: 'rc-area', text: r.area })),
                 locked
-                    ? el('div', { class: 'rc-pay lock', title: t('route_locked') }, el('span', { text: t('route_locked') }))
-                    : el('div', { class: 'rc-pay' }, el('b', { text: money(r.money) }), el('span', { text: `${num(r.xp)} XP` }))));
+                    ? el('div', { class: 'rc-pay lock' }, icon('lock'), el('span', { text: t('dash_level', r.level) }))
+                    : el('div', { class: 'rc-pay' }, el('b', { text: money(r.money) }), el('span', { text: `${num(r.xp)} XP` }))),
+            lineStrip(r),
+            el('div', { class: 'rc-meta' },
+                el('span', { text: t('route_stops_n', r.stops.length) }),
+                el('span', { text: `${km(r.length)} km` }),
+                el('span', { text: clock(r.par) }),
+                el('span', { class: 'rc-tick' }, icon('check'))));
     });
 
     const list = el('div', { class: 'rlist', id: 'rlist' }, cards);
@@ -755,10 +786,10 @@ async function startRoute() {
 /* Diagrama de linha desenhado a partir das coordenadas reais das paragens.
    compact: versão pequena para o cartaz. */
 function routeMap(r, compact) {
-    const u = compact ? 0.62 : 1;
-    const W = compact ? 360 : 920;
-    const H = compact ? 140 : 370;
-    const pad = 50 * u;
+    const u = compact ? 0.78 : 1;
+    const W = compact ? 380 : 920;
+    const H = compact ? 430 : 370;
+    const pad = (compact ? 40 : 50) * u;
     const bottom = compact ? 4 : 34; // espaço da legenda
     const node = 16 * u;
 
@@ -789,7 +820,7 @@ function routeMap(r, compact) {
     if (depotRaw.py < edge) reach = Math.min(reach, (edge - first.py) / vy);
     const proj = [{ depot: true, px: first.px + vx * Math.max(0, reach), py: first.py + vy * Math.max(0, reach) }, ...stopPoints];
 
-    const color = `rgb(var(--l${tier(r.level)}))`;
+    const color = `rgb(${lineRgb(r)})`;
     const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': r.label });
 
     // Quarteirões ao fundo
@@ -800,12 +831,16 @@ function routeMap(r, compact) {
             svg('pattern', { id: patternId, width: block, height: block, patternUnits: 'userSpaceOnUse' },
                 svg('path', { d: `M${block} 0H0V${block}`, fill: 'none', stroke: 'rgba(143,200,212,0.07)', 'stroke-width': 1 }))),
         svg('rect', { width: W, height: H, fill: `url(#${patternId})` }));
+    root.classList.add('route-map');
 
-    // Ligação terminal -> primeira paragem (tracejada)
-    root.append(svg('path', {
-        d: `M${proj[0].px},${proj[0].py}L${proj[1].px},${proj[1].py}`,
-        stroke: 'rgba(255,176,32,0.65)', 'stroke-width': 4 * u, 'stroke-dasharray': `${2 * u} ${9 * u}`, 'stroke-linecap': 'round', fill: 'none',
-    }));
+    // Saída da garagem e volta a ela: a rota é um circuito fechado.
+    const dash = (a, b) => svg('path', {
+        d: `M${a.px},${a.py}L${b.px},${b.py}`,
+        stroke: 'rgba(var(--led-rgb), 0.6)', 'stroke-width': 4 * u,
+        'stroke-dasharray': `${2 * u} ${9 * u}`, 'stroke-linecap': 'round', fill: 'none',
+    });
+    root.append(dash(proj[0], proj[1]));
+    if (r.garage) root.append(dash(proj[proj.length - 1], proj[0]));
 
     // Linha principal com curvas suaves
     const stops = proj.slice(1);
@@ -828,7 +863,7 @@ function routeMap(r, compact) {
     const depot = proj[0];
     const half = 17 * u;
     root.append(svg('g', {},
-        svg('rect', { x: depot.px - half, y: depot.py - half, width: half * 2, height: half * 2, rx: 9 * u, fill: '#ffb020' }),
+        svg('rect', { x: depot.px - half, y: depot.py - half, width: half * 2, height: half * 2, rx: 9 * u, fill: 'var(--led)' }),
         svg('path', {
             d: `M${depot.px - 8 * u},${depot.py - 7 * u}h${16 * u}v${10 * u}h${-16 * u}z M${depot.px - 8 * u},${depot.py - 2 * u}h${16 * u} M${depot.px - 5 * u},${depot.py + 5 * u}v${3 * u} M${depot.px + 5 * u},${depot.py + 5 * u}v${3 * u}`,
             fill: 'none', stroke: '#1b1200', 'stroke-width': 2 * u, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
@@ -853,7 +888,7 @@ function routeMap(r, compact) {
 
     return el('div', { class: `map${compact ? ' compact' : ''}` }, root,
         compact ? null : el('div', { class: 'map-legend' },
-            el('span', {}, el('i', { class: 'depot' }), t('route_depot')),
+            el('span', {}, el('i', { class: 'depot' }), t('hud_return')),
             el('span', {}, el('i'), t('hud_stop_n', '').trim()),
             el('span', {}, el('i', { class: 'end' }), t('route_final')),
         ),
@@ -951,7 +986,7 @@ function unlocksBox() {
         return el('div', { class: 'unlocks' },
             el('div', { class: 'unlocks-title', text: t('dash_unlocks', target) }),
             el('div', { class: 'unlocks-list' },
-                routes.map((r) => el('span', { class: `unlock t${tier(r.level)}` }, el('i', { class: 'line-badge', text: r.id }), r.label)),
+                routes.map((r) => el('span', { class: 'unlock', style: lineVar(r) }, el('i', { class: 'line-badge', text: r.id }), r.label)),
                 vehicles.map((v) => el('span', { class: 'unlock' }, el('i', { class: 'unlock-bus' }, icon('bus')), v.label))));
     }
     return el('div', { class: 'unlocks-gap' });
@@ -1079,25 +1114,96 @@ function badgesPanel() {
 }
 
 /* ── Frota ─────────────────────────────────────────────────── */
-// Cada tipo de veículo tem a sua imagem (web/img/stage_<tipo>.webp); se faltar, usa stage.webp.
 function busKind(model) {
     return model === 'coach' ? 'coach' : model === 'airbus' ? 'airport' : 'city';
 }
 
+// Autocarro de perfil, desenhado. Cada tipo tem a sua silhueta:
+// o coach é alto e com bagageira, o urbano tem duas portas, o do aeroporto é rasteiro e comprido.
+function busArt(v) {
+    const kind = busKind(v.model);
+    const W = 520;
+    const H = 172;
+    const top = kind === 'coach' ? 22 : kind === 'airport' ? 40 : 32;
+    const floor = 128;                       // onde acaba a carroçaria
+    const axle = 142;
+    const r = kind === 'coach' ? 14 : 8;
+    const glassTop = top + (kind === 'coach' ? 18 : 14);
+    const glassH = kind === 'coach' ? 40 : kind === 'airport' ? 34 : 32;
+    const nose = 26;                         // frente do autocarro (esquerda)
+    const tail = W - 22;
+
+    const doors = kind === 'airport' ? [84, 250] : kind === 'city' ? [84, 300] : [84];
+    const doorW = 44;
+    const parts = [];
+
+    // Para-brisas: um painel inclinado à frente
+    parts.push(svg('path', {
+        d: `M${nose + 10},${glassTop + glassH} L${nose + 4},${glassTop + 6}
+            Q${nose + 6},${glassTop} ${nose + 16},${glassTop} L${nose + 58},${glassTop}
+            L${nose + 58},${glassTop + glassH} Z`,
+        class: 'bus-glass',
+    }));
+
+    // Janelas laterais, saltando as portas
+    const from = nose + 68;
+    const span = tail - 14 - from;
+    const count = kind === 'coach' ? 6 : 7;
+    const gap = 7;
+    const wW = (span - gap * (count - 1)) / count;
+    for (let i = 0; i < count; i += 1) {
+        const x = from + i * (wW + gap);
+        const overDoor = doors.some((dx) => x < dx + doorW && x + wW > dx);
+        if (!overDoor) {
+            parts.push(svg('rect', { x, y: glassTop, width: wW, height: glassH, rx: 2, class: 'bus-glass' }));
+        }
+    }
+
+    // Portas: vidro inteiro com a divisão ao meio
+    doors.forEach((x) => {
+        parts.push(svg('rect', { x, y: glassTop - 2, width: doorW, height: floor - glassTop - 10, rx: 2, class: 'bus-door' }));
+        parts.push(svg('line', { x1: x + doorW / 2, y1: glassTop, x2: x + doorW / 2, y2: floor - 14, class: 'bus-door-split' }));
+    });
+
+    const wheel = (cx) => svg('g', {},
+        svg('path', { d: `M${cx - 30},${floor} a30,30 0 0 1 60,0`, class: 'bus-arch' }),
+        svg('circle', { cx, cy: axle, r: 24, class: 'bus-tyre' }),
+        svg('circle', { cx, cy: axle, r: 10, class: 'bus-hub' }));
+
+    return svg('svg', { class: `bus ${kind}`, viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': v.label },
+        svg('line', { x1: 10, y1: 168, x2: W - 10, y2: 168, class: 'bus-ground' }),
+        // carroçaria
+        svg('path', {
+            d: `M${nose},${top + r} Q${nose},${top} ${nose + r},${top} L${tail - r},${top}
+                Q${tail},${top} ${tail},${top + r} L${tail},${floor} L${nose},${floor} Z`,
+            class: 'bus-body',
+        }),
+        // friso do tejadilho
+        svg('line', { x1: nose + 4, y1: top + 7, x2: tail - 4, y2: top + 7, class: 'bus-roof' }),
+        ...parts,
+        // bagageira do coach / saia do urbano
+        kind === 'coach'
+            ? svg('rect', { x: nose + 40, y: floor - 26, width: tail - nose - 80, height: 18, rx: 2, class: 'bus-bay' })
+            : svg('line', { x1: nose, y1: floor - 8, x2: tail, y2: floor - 8, class: 'bus-skirt' }),
+        // letreiro de destino com a linha
+        svg('rect', { x: nose + 4, y: top + 12, width: 60, height: 16, rx: 2, class: 'bus-blind' }),
+        wheel(nose + 86), wheel(tail - 92));
+}
+
 function viewFleet() {
-    const cards = S.vehicles.map((v) => {
+    const cards = S.vehicles.map((v, index) => {
         const locked = v.level > S.profile.level;
         const compatible = S.routes.filter((r) => r.seats <= v.seats).length;
         const row = (label, value) => el('div', { class: 'vehicle-row' }, el('span', { text: label }), el('b', { text: value }));
 
-        return el('div', { class: `panel vehicle${locked ? ' locked' : ''}` },
-            el('div', { class: 'bus-art', role: 'img', 'aria-label': v.label, style: { backgroundImage: `url('img/stage_${busKind(v.model)}.webp'), url('img/stage.webp')` } }),
+        return el('div', { class: `panel vehicle${locked ? ' locked' : ''}`, style: lineVar({ id: index * 5 + 2 }) },
+            el('div', { class: 'bus-art' }, busArt(v)),
             el('div', { class: 'vehicle-head' },
                 el('div', { class: 'vehicle-name', text: v.label }),
                 locked
                     ? el('span', { class: 'pill lock' }, icon('lock'), t('fleet_unlock', v.level))
                     : el('span', { class: 'pill' }, icon('check'), t('fleet_ready')),
-                el('div', { class: `seat-dots t${tier(v.level)}`, style: { '--l1': `var(--l${tier(v.level)})` } },
+                el('div', { class: 'seat-dots' },
                     Array.from({ length: Math.min(v.seats, 24) }, () => el('i')))),
             el('div', { class: 'vehicle-stats' },
                 row(t('fleet_seats_label'), num(v.seats)),
@@ -1197,19 +1303,22 @@ function buildGauge() {
 function hudStart(data) {
     const hud = $('#hud');
     const side = S.cfg.hudSide === 'left' ? 'left' : 'right';
-    hud.className = `hud t${tier(data.level)}${side === 'left' ? ' left' : ''}`;
+    hud.className = `hud${side === 'left' ? ' left' : ''}`;
+    hud.style.setProperty('--line-rgb', lineRgb({ id: data.routeId }));
 
     H.total = data.stops.length;
+    H.prompts = { destination: 'prompt_destination', dropoff: 'prompt_alight', return: 'prompt_return' };
     H.last = {};
     H.leg = 0;
     H.boardTotal = data.stops.reduce((sum, stop) => sum + (stop.boarding || 0), 0);
     H.kinds = data.stops.map((stop, i) => stop.kind
         || (i === data.stops.length - 1 ? 'destination' : stop.boarding > 0 ? 'pickup' : 'dropoff'));
+    const STAGE_LABEL = { destination: 'hud_final', dropoff: 'hud_dropoff', return: 'hud_return' };
     H.stops = data.stops.map((stop, i) => {
         const kind = H.kinds[i];
         const note = el('span', { class: 'hud-stop-note' });
         note.textContent = kind === 'pickup' && stop.boarding > 0 ? `+${stop.boarding}` : '';
-        const label = kind === 'destination' ? t('hud_final') : kind === 'dropoff' ? t('hud_dropoff') : t('hud_stop_n', i + 1);
+        const label = STAGE_LABEL[kind] ? t(STAGE_LABEL[kind]) : t('hud_stop_n', i + 1);
         return el('li', { class: `hud-stop ${kind}` }, el('span', { class: 'hud-dot' }), el('span', { text: label }), note);
     });
 
@@ -1241,7 +1350,7 @@ function hudStart(data) {
 
     hud.replaceChildren(
         el('div', { class: 'hud-card' },
-            el('div', { class: 'hud-top', style: { '--photo': routeImage(route(data.routeId) || { id: data.routeId }, '../') } },
+            el('div', { class: 'hud-top' },
                 el('span', { class: 'line-badge', text: data.routeId }),
                 el('div', {}, el('div', { class: 'hud-name', text: data.label }), el('div', { class: 'hud-meta', id: 'hud-meta' })),
             ),
@@ -1280,7 +1389,7 @@ function hudTick(d) {
         });
         const kind = H.kinds[Math.min(d.stop, H.kinds.length) - 1] || 'pickup';
         H.next.className = `next ${kind}`;
-        H.kindLabel.textContent = t(kind === 'destination' ? 'prompt_destination' : kind === 'dropoff' ? 'prompt_alight' : 'prompt_board');
+        H.kindLabel.textContent = t(H.prompts[kind] || 'prompt_board');
         H.nextNo.textContent = `${Math.min(d.stop, H.total)}/${H.total}`;
     }
 
@@ -1405,7 +1514,8 @@ function ticketShow(d) {
 
     const life = el('i', { style: { animationDuration: `${seconds}s` } });
 
-    host.className = `ticket-wrap t${tier(level)}`;
+    host.className = 'ticket-wrap';
+    host.style.setProperty('--line-rgb', lineRgb({ id: d.routeId }));
     host.replaceChildren(
         el('div', { class: 'ticket' },
             el('div', { class: 'ticket-head' },

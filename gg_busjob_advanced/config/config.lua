@@ -27,8 +27,11 @@ Config.StopRadius = 18.0
 Config.StopSpeedLimit = 1.5
 Config.FirstStopDelay = 20
 Config.StopCooldown = 8
-Config.StopServiceTime = 12000           -- ms máximos de cada paragem (a barra do ecrã usa este tempo)
-Config.StopServiceMin = 2500             -- ms mínimos: a paragem acaba logo que todos entraram ou saíram, mas nunca antes disto
+-- Cada paragem dura o que precisar: o mínimo, mais um tempo por pessoa, até ao máximo.
+-- Acaba sempre logo que todos entraram ou saíram.
+Config.StopServiceTime = 16000           -- ms máximos de uma paragem
+Config.StopServiceMin = 2500             -- ms mínimos
+Config.StopServicePer = 2200             -- ms por pessoa a entrar ou a sair
 -- Danos e multas nunca tiram mais de (1 - este valor) do pagamento base.
 -- Com 0.65, o máximo descontado é 35%.
 Config.MinimumConditionMultiplier = 0.65
@@ -52,6 +55,17 @@ Config.Penalties = {
         fine = 35,
         cooldown = 15,      -- segundos entre multas por velocidade
     },
+}
+
+-- ─────────────────────────────────────────────────────────────
+--  Regresso à garagem
+--  Depois de largar todos os passageiros, o turno só fecha (e só paga)
+--  quando o autocarro for entregue aqui.
+-- ─────────────────────────────────────────────────────────────
+Config.Return = {
+    enabled = true,
+    coords = vector3(465.9, -644.5, 27.42),
+    radius = 14.0,
 }
 
 -- ─────────────────────────────────────────────────────────────
@@ -121,6 +135,10 @@ Config.Passengers = {
     seated = true,                 -- os passageiros entram e sentam-se no autocarro (só o motorista os vê)
     alightAtPickup = 2,            -- quantos saem numa paragem de recolha (liberta lugares para os novos); 0 desliga
     seatWait = 3500,               -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
+    boardAtOnce = 2,               -- quantos entram ao mesmo tempo (fila à porta; 1 = um a um)
+    enterTimeout = 9000,           -- ms que o jogo tem para meter um passageiro no lugar
+    enterRetries = 1,              -- tentativas extra se a porta estiver bloqueada
+    warpFallback = false,          -- true senta à força quem não conseguir entrar (teletransporte); false desvanece-se
     doorBone = 'door_pside_f',     -- porta de entrada, usada só por quem não tem lugar
     doorOffset = 1.0,              -- distância (m) à porta onde esses esperam
     walkSpeed = 1.5,               -- 1.0 caminhar, 2.0 correr
@@ -157,6 +175,7 @@ Config.UI = {
     ticketSeconds = 14,          -- tempo que o bilhete final fica no ecrã
     markerColor = { 255, 176, 32 },       -- paragens onde sobem passageiros
     dropoffColor = { 47, 208, 166 },      -- paragens onde descem (e o destino final)
+    garageColor = { 130, 170, 255 },      -- entrega do autocarro na garagem
 }
 
 -- Conquistas: aparecem no perfil quando a estatística chega ao valor.

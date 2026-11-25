@@ -83,21 +83,21 @@ local function setPrompt(prompt)
     end
 end
 
--- 'pickup': sobem passageiros | 'dropoff': descem alguns | 'destination': última paragem, descem todos.
--- A última paragem é sempre o destino, mesmo que alguém a tenha configurado com passageiros à espera.
-local function stopKind(route, index)
-    if index == #route.stops then
-        return 'destination'
-    end
-    return #route.stops[index].npc_positions > 0 and 'pickup' or 'dropoff'
-end
+-- As etapas vêm de shared.lua, para o cliente e o servidor contarem a rota igual.
+-- A última paragem é sempre o destino (descem todos) e, depois dela, falta entregar
+-- o autocarro na garagem: é lá que a rota fecha e o pagamento entra.
+local stopKind = BusStageKind
+local stageCount = BusStageCount
+local stageCoord = BusStageCoord
+local stageRadius = BusStageRadius
 
 local NO_PASSENGERS = { npc_positions = {} }
 
 local KIND_STYLE = {
     pickup = { sprite = 1, colour = 5, blip = 'blip_stop', prompt = 'prompt_board' },
-    dropoff = { sprite = 1, colour = 2, blip = 'blip_dropoff', prompt = 'prompt_alight' },
-    destination = { sprite = 38, colour = 2, blip = 'blip_destination', prompt = 'prompt_destination' },
+    dropoff = { sprite = 1, colour = 5, blip = 'blip_dropoff', prompt = 'prompt_alight' },
+    destination = { sprite = 1, colour = 5, blip = 'blip_destination', prompt = 'prompt_destination' },
+    ['return'] = { sprite = 50, colour = 5, blip = 'blip_return', prompt = 'prompt_return' },
 }
 
 -- ─────────────────────────────────────────────────────────────
@@ -121,6 +121,8 @@ local function getRoutesPayload()
 
         routesPayload[id] = {
             id = id,
+            garage = Config.Return.enabled
+                and { x = Config.Return.coords.x, y = Config.Return.coords.y } or nil,
             label = route.label,
             area = route.area,
             level = route.level,
@@ -160,7 +162,7 @@ local function activeShiftPayload()
         routeId = routeState.routeId,
         label = routeState.route.label,
         nextStop = routeState.nextStop,
-        total = #routeState.route.stops,
+        total = stageCount(routeState.route),
     }
 end
 
@@ -182,8 +184,18 @@ local function removeStopBlip()
     stopBlip = nil
 end
 
+-- A etapa atual como se fosse uma paragem. A garagem não tem passageiros.
+local RETURN_STAGE = { npc_positions = {} }
 local function currentStop()
-    return routeState and routeState.route.stops[routeState.nextStop]
+    if not routeState then
+        return nil
+    end
+    local route, index = routeState.route, routeState.nextStop
+    if BusStageIsReturn(route, index) then
+        RETURN_STAGE.stop_coord = Config.Return.coords
+        return RETURN_STAGE
+    end
+    return route.stops[index]
 end
 
 local function setNextStop()
@@ -193,8 +205,10 @@ local function setNextStop()
         return
     end
 
+    -- Um único traçado no mapa: o do blip da paragem. Antes marcava-se também um
+    -- ponto de destino com SetNewWaypoint, e o jogo desenhava duas linhas por cima
+    -- uma da outra (a roxa do destino e a amarela da rota).
     local style = KIND_STYLE[stopKind(routeState.route, routeState.nextStop)]
-    SetNewWaypoint(stop.stop_coord.x, stop.stop_coord.y)
     stopBlip = AddBlipForCoord(stop.stop_coord.x, stop.stop_coord.y, stop.stop_coord.z)
     SetBlipSprite(stopBlip, style.sprite)
     SetBlipColour(stopBlip, style.colour)
@@ -202,7 +216,7 @@ local function setNextStop()
     SetBlipRoute(stopBlip, true)
     SetBlipRouteColour(stopBlip, style.colour)
     BeginTextCommandSetBlipName('STRING')
-    AddTextComponentString(_U(style.blip, routeState.nextStop, #routeState.route.stops))
+    AddTextComponentString(_U(style.blip, routeState.nextStop, stageCount(routeState.route)))
     EndTextCommandSetBlipName(stopBlip)
 end
 
@@ -475,8 +489,9 @@ local function beginRoute(routeId, model)
 
     local route = routeState.route
     local stops = {}
-    for index, stop in ipairs(route.stops) do
+    for index = 1, stageCount(route) do
         local kind = stopKind(route, index)
+        local stop = route.stops[index]
         stops[index] = { boarding = kind == 'pickup' and #stop.npc_positions or 0, kind = kind }
     end
 
@@ -512,14 +527,14 @@ local function serviceCurrentStop()
     end
 
     local stopIndex = current.nextStop
-    local total = #current.route.stops
+    local total = stageCount(current.route)
     local stop = current.route.stops[stopIndex]
     local kind = stopKind(current.route, stopIndex)
+    local isGarage = kind == 'return'
     local boarding = kind == 'pickup' and #stop.npc_positions or 0
-    local isFinal = kind == 'destination'
     local alighting = 0
-    if boarding == 0 then
-        alighting = isFinal and current.passengers or math.ceil(current.passengers / 2)
+    if not isGarage and boarding == 0 then
+        alighting = kind == 'destination' and current.passengers or math.ceil(current.passengers / 2)
     end
 
     serviceActive = true
@@ -540,13 +555,16 @@ local function serviceCurrentStop()
         return
     end
 
-    -- ② Daqui para a frente a paragem já está ganha (e, no destino, o dinheiro já
-    --    está na conta). Só falta a parte que se vê.
-    if isFinal then
-        notify('destination_reached', 'success')
-    else
-        notify('stop_arrived', 'success', result.stop, result.totalStops)
+    -- ② Daqui para a frente a etapa já está ganha. Só falta a parte que se vê.
+    --    A garagem não tem passageiros nem portas: é entregar e acabou.
+    if result.complete then
+        serviceActive = false
+        nui('service:stop', { completed = true })
+        finishRoute(result)
+        return
     end
+
+    notify('stop_arrived', 'success', result.stop, result.totalStops)
 
     -- Só as portas do lado do passeio abrem; a do condutor fica fechada.
     setEntranceDoors(bus, true)
@@ -554,7 +572,10 @@ local function serviceCurrentStop()
     SetVehicleIndicatorLights(bus, 1, true)
     SetVehicleHandbrake(bus, true)      -- travão de mão: o autocarro não pode fugir sozinho
 
-    local duration = Config.StopServiceTime
+    -- A paragem dura o que precisar para a gente que entra ou sai.
+    local people = math.max(boarding, alighting, 1)
+    local duration = math.min(Config.StopServiceTime,
+        Config.StopServiceMin + people * Config.StopServicePer)
     nui('service:start', {
         duration = duration,
         mode = boarding > 0 and 'board' or 'alight',
@@ -623,12 +644,6 @@ local function serviceCurrentStop()
         return
     end
 
-    -- ③ Destino: bilhete, pagamento já recebido, e o autocarro só sai quando o jogador sair.
-    if result.complete then
-        finishRoute(result)
-        return
-    end
-
     if boarding > 0 then
         current.passengers = math.max(0, current.passengers + boarding - freed)
     else
@@ -637,9 +652,13 @@ local function serviceCurrentStop()
     current.nextStop = result.stop + 1
     setNextStop()
 
-    -- Último embarque feito: avisa que agora é entregar.
-    if boarding > 0 and stopKind(current.route, current.nextStop) ~= 'pickup' then
+    local nextKind = stopKind(current.route, current.nextStop)
+    if boarding > 0 and nextKind ~= 'pickup' then
+        -- Último embarque feito: avisa que agora é entregar.
         notify('all_aboard', 'info')
+    elseif nextKind == 'return' then
+        -- Passageiros todos entregues: falta levar o autocarro à garagem.
+        notify('return_to_garage', 'info')
     end
 end
 
@@ -829,12 +848,18 @@ local function createDepot()
     end
 end
 
-local function drawStopMarker(stopCoords, kind)
-    local color = kind == 'pickup' and Config.UI.markerColor or Config.UI.dropoffColor
+local function drawStopMarker(stopCoords, kind, radius)
+    radius = radius or Config.StopRadius
+    local color = Config.UI.dropoffColor
+    if kind == 'pickup' then
+        color = Config.UI.markerColor
+    elseif kind == 'return' then
+        color = Config.UI.garageColor or Config.UI.dropoffColor
+    end
     DrawMarker(
         1, stopCoords.x, stopCoords.y, stopCoords.z - 1.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        Config.StopRadius, Config.StopRadius, 1.0,
+        radius, radius, 1.0,
         color[1], color[2], color[3], 45,
         false, false, 2, false, nil, nil, false
     )
@@ -889,16 +914,17 @@ CreateThread(function()
 
                 if stopDistance < 65.0 then
                     waitTime = 0
-                    drawStopMarker(stopCoords, kind)
+                    drawStopMarker(stopCoords, kind, stageRadius(routeState.route, routeState.nextStop))
                 end
 
-                if stopDistance <= Config.StopRadius and GetPedInVehicleSeat(routeState.bus, -1) == ped then
+                if stopDistance <= stageRadius(routeState.route, routeState.nextStop)
+                    and GetPedInVehicleSeat(routeState.bus, -1) == ped then
                     waitTime = 0
                     if GetEntitySpeed(routeState.bus) <= Config.StopSpeedLimit then
                         prompt = {
                             key = Config.KeyLabel,
                             text = _U(KIND_STYLE[kind].prompt),
-                            sub = _U('prompt_stop_n', routeState.nextStop, #routeState.route.stops),
+                            sub = _U('prompt_stop_n', routeState.nextStop, stageCount(routeState.route)),
                         }
                         if IsControlJustReleased(0, Config.Key) then
                             prompt = nil
@@ -984,7 +1010,7 @@ RegisterCommand('busjobinfo', function()
     local alive = bus and DoesEntityExist(bus)
     print(('[%s] rota %d "%s" | paragem %d/%d (%s) | passageiros %d (sentados %d, lugares livres %d)')
         :format(resource, routeState.routeId, routeState.route.label,
-            routeState.nextStop, #routeState.route.stops,
+            routeState.nextStop, stageCount(routeState.route),
             stopKind(routeState.route, routeState.nextStop),
             routeState.passengers, Passengers.count(),
             alive and Passengers.freeSeats(bus) or 0))

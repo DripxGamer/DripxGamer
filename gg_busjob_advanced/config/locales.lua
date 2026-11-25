@@ -5,6 +5,11 @@
 Locales = {}
 
 Locales.en = {
+    -- v7: entrega na garagem
+    blip_return = 'Garage — hand the bus in',
+    prompt_return = 'Hand the bus in',
+    hud_return = 'Garage',
+    return_to_garage = 'Passengers delivered. Take the bus back to the garage to get paid.',
     -- v6: fim do turno e pagamento
     payment_failed = 'Payment could not be processed. Nothing was lost: press E again at the stop.',
     destination_reached = 'Destination reached. Payment on its way.',
@@ -209,6 +214,11 @@ Locales.en = {
 }
 
 Locales.pt = {
+    -- v7: entrega na garagem
+    blip_return = 'Garagem — entregar o autocarro',
+    prompt_return = 'Entregar o autocarro',
+    hud_return = 'Garagem',
+    return_to_garage = 'Passageiros entregues. Leva o autocarro à garagem para receber.',
     -- v6: fim do turno e pagamento
     payment_failed = 'Não foi possível processar o pagamento. Não perdeste nada: carrega outra vez em E na paragem.',
     destination_reached = 'Chegaste ao destino. O pagamento já vem.',
@@ -408,6 +418,11 @@ Locales.pt = {
 }
 
 Locales.es = {
+    -- v7: entrega na garagem
+    blip_return = 'Cochera — entregar el autobús',
+    prompt_return = 'Entregar el autobús',
+    hud_return = 'Cochera',
+    return_to_garage = 'Pasajeros entregados. Lleva el autobús a la cochera para cobrar.',
     -- v6: fim do turno e pagamento
     payment_failed = 'No se pudo procesar el pago. No has perdido nada: pulsa E otra vez en la parada.',
     destination_reached = 'Has llegado al destino. El pago está en camino.',
@@ -607,6 +622,11 @@ Locales.es = {
 }
 
 Locales.fr = {
+    -- v7: entrega na garagem
+    blip_return = 'Dépôt — rendre le bus',
+    prompt_return = 'Rendre le bus',
+    hud_return = 'Dépôt',
+    return_to_garage = 'Passagers déposés. Ramenez le bus au dépôt pour être payé.',
     -- v6: fim do turno e pagamento
     payment_failed = 'Le paiement n\'a pas pu être traité. Rien n\'est perdu : appuyez de nouveau sur E à l\'arrêt.',
     destination_reached = 'Destination atteinte. Le paiement arrive.',
@@ -807,6 +827,11 @@ Locales.fr = {
 
 -- Português do Brasil
 Locales['pt-br'] = {
+    -- v7: entrega na garagem
+    blip_return = 'Garagem — entregar o ônibus',
+    prompt_return = 'Entregar o ônibus',
+    hud_return = 'Garagem',
+    return_to_garage = 'Passageiros entregues. Leve o ônibus até a garagem para receber.',
     -- v6: fim do turno e pagamento
     payment_failed = 'Não foi possível processar o pagamento. Você não perdeu nada: aperte E de novo na parada.',
     destination_reached = 'Você chegou ao destino. O pagamento já vem.',
@@ -995,6 +1020,11 @@ Locales['pt-br'] = {
 
 -- Deutsch
 Locales.de = {
+    -- v7: entrega na garagem
+    blip_return = 'Depot — Bus abgeben',
+    prompt_return = 'Bus abgeben',
+    hud_return = 'Depot',
+    return_to_garage = 'Fahrgäste abgeliefert. Bring den Bus zurück ins Depot, um bezahlt zu werden.',
     -- v6: fim do turno e pagamento
     payment_failed = 'Die Zahlung konnte nicht verarbeitet werden. Nichts ist verloren: drücke an der Haltestelle erneut E.',
     destination_reached = 'Ziel erreicht. Die Zahlung ist unterwegs.',
@@ -1183,6 +1213,11 @@ Locales.de = {
 
 -- Italiano
 Locales.it = {
+    -- v7: entrega na garagem
+    blip_return = 'Deposito — riconsegna l\'autobus',
+    prompt_return = 'Riconsegna l\'autobus',
+    hud_return = 'Deposito',
+    return_to_garage = 'Passeggeri consegnati. Riporta l\'autobus al deposito per essere pagato.',
     -- v6: fim do turno e pagamento
     payment_failed = 'Impossibile elaborare il pagamento. Non hai perso nulla: premi di nuovo E alla fermata.',
     destination_reached = 'Destinazione raggiunta. Il pagamento sta arrivando.',

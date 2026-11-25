@@ -1,8 +1,10 @@
-# gg_busjob_advanced v6
+# gg_busjob_advanced v7
 
 Emprego de motorista de autocarro para **Qbox** (também funciona com QBCore).
 
-- Terminal com **imagens 3D renderizadas**: cartaz, uma cena por rota (rua molhada, porto, aeroporto, miradouro, deserto, floresta…), faixas nas colunas, pódio na classificação
+- Terminal desenhado como **sinalética de transportes**: sem uma única fotografia. O que identifica
+  cada rota é o número, o destino e o **traçado real da linha**, desenhado a partir das coordenadas
+  das paragens
 - **5 cores de painel** à escolha de cada jogador, e **7 idiomas** (pt, pt-br, en, es, fr, de, it)
 - **Trabalhadores em serviço**, **rotas** (com bloqueio por nível) e **histórico**
 - Painel do turno com **velocímetro em arco** (fica vermelho acima do limite de multa), próxima paragem e lista de paragens
@@ -34,7 +36,33 @@ setr gg_busjob_advanced:framework auto     # auto | qbx_core | qb-core
 setr gg_busjob_advanced:speedUnit kmh      # kmh | mph
 ```
 
-## O que mudou na v6 (o teu problema)
+## O que mudou na v7
+
+1. **Entrega na garagem.** Depois da última paragem os passageiros saem todos, e aí falta levar o
+   autocarro à garagem (`Config.Return`, em `vector3(465.9, -644.5, 27.42)`). **É lá que recebes**:
+   a rota só fecha quando o autocarro estiver entregue. A garagem é a 9.ª etapa da rota, com marcador,
+   blip e linha próprios.
+2. **Passageiros a entrar em fila.** Entravam todos ao mesmo tempo pela mesma porta, tropeçavam uns
+   nos outros e os que ficavam presos eram teletransportados para o lugar. Agora entram no máximo
+   `boardAtOnce` de cada vez (2 por omissão), cada um tem `enterTimeout` para conseguir e uma segunda
+   tentativa se a porta estiver bloqueada. **O teletransporte desapareceu**: quem o jogo não consegue
+   sentar vai até à porta e desvanece-se (`warpFallback = false`). A saída também já não usa o salto
+   instantâneo. A paragem dura o tempo que a gente precisar (mínimo + tempo por pessoa, até ao máximo).
+3. **Um só traçado no mapa.** O jogo desenhava duas linhas por cima uma da outra, a roxa do ponto de
+   destino e a amarela da rota, porque o recurso marcava as duas. Agora só fica a da rota.
+4. **Painel novo, sem imagens.** As ilustrações 3D saíram todas (menos 1,2 MB no recurso). Em vez
+   delas:
+   - o **cartaz** passou a ser o letreiro de destino da linha escolhida mais o **traçado dela**,
+     desenhado a partir das coordenadas reais das paragens, com a saída e a volta à garagem a tracejado;
+   - cada **cartão de rota** tem o número num roundel, o destino e uma **faixa de paragens** como a
+     que está por cima das portas do autocarro (cheio = recolha, vazado = largada, branco = destino,
+     quadrado = garagem);
+   - cada linha tem a **sua cor**, como numa rede de metro, em tons de mapa impresso que não competem
+     com a cor do painel; os escalões do motorista passaram a ser uma progressão de aço a ouro;
+   - os autocarros da **Frota** são desenhados em SVG, um perfil por tipo;
+   - superfícies de chapa com cantos a direito e filetes finos, em vez de cartões com sombras.
+
+## O que mudou na v6
 
 **O problema:** na última paragem os passageiros saíam, o autocarro desaparecia e não recebias nada.
 
@@ -99,9 +127,10 @@ Não precisas de fazer nada. A tabela `gg_busjob_advanced_profiles` mantém-se e
 - Cada rota tem três tipos de paragem, com cores e avisos diferentes:
   - **Recolha** (marcador e blip amarelos): os passageiros caminham até à porta da frente do lado do passeio e sentam-se.
   - **Largada** (verde): metade dos passageiros sai pela mesma porta e afasta-se a pé.
-  - **Destino** (verde, bandeira de meta): a última paragem. O pagamento é confirmado logo que
-    carregas em **E**, depois saem todos e o autocarro só é recolhido quando saíres dele. Se uma
-    rota tiver passageiros configurados na última paragem, são ignorados.
+  - **Destino** (verde): a última paragem da rota. Saem todos. Se uma rota tiver passageiros
+    configurados na última paragem, são ignorados.
+  - **Garagem** (azul): a etapa final, no terminal. O pagamento é confirmado logo que carregas em
+    **E** e o autocarro só é recolhido quando saíres dele.
 - Depois do último embarque aparece o aviso "Todos a bordo".
 - Os passageiros são locais: só o motorista os vê. Nas paragens de recolha sai gente para libertar
   lugares, por isso o autocarro mantém-se com gente lá dentro em vez de ficar cheio de fantasmas.
@@ -149,13 +178,24 @@ Está tudo em `Config.Bonuses` e `Config.Penalties` (`config/config.lua`). Para 
 Ajustes dos passageiros (`Config.Passengers`) e das paragens:
 
 ```lua
-Config.StopServiceTime = 12000  -- ms máximos de cada paragem
-Config.StopServiceMin  = 2500   -- ms mínimos (acaba logo que todos entraram/saíram, mas nunca antes disto)
+Config.StopServiceTime = 16000  -- ms máximos de uma paragem
+Config.StopServiceMin  = 2500   -- ms mínimos
+Config.StopServicePer  = 2200   -- ms por pessoa a entrar ou a sair
+
+Config.Return = {               -- entrega do autocarro: é aqui que a rota fecha e se recebe
+    enabled = true,
+    coords  = vector3(465.9, -644.5, 27.42),
+    radius  = 14.0,
+}
 
 Config.Passengers = {
     seated = true,              -- sentam-se no autocarro; false = desvanecem-se ao entrar
     alightAtPickup = 2,         -- quantos saem numa paragem de recolha (liberta lugares); 0 desliga
     seatWait = 3500,            -- ms à espera de um lugar livre antes de desistir e se desvanecer à porta
+    boardAtOnce = 2,            -- quantos entram ao mesmo tempo (fila à porta; 1 = um a um)
+    enterTimeout = 9000,        -- ms que o jogo tem para meter um passageiro no lugar
+    enterRetries = 1,           -- tentativas extra se a porta estiver bloqueada
+    warpFallback = false,       -- true senta à força quem não conseguir (teletransporte); false desvanece-se
     doorBone = 'door_pside_f',  -- porta usada por quem não tem lugar
     doorOffset = 1.0,           -- distância (m) à porta onde esses esperam
     walkSpeed = 1.5,            -- 1.0 caminhar, 2.0 correr
@@ -193,23 +233,24 @@ A cor que o jogador escolhe no terminal fica guardada no próprio jogo dele e te
 
 `pt`, `pt-br`, `en`, `es`, `fr`, `de` e `it`. O código aceita maiúsculas e `_` (`PT_BR` também funciona). Se faltar uma chave num idioma, cai para inglês. Para acrescentar um idioma, copia um bloco `Locales.xx = { ... }` em `config/locales.lua`, traduz os valores (mantém os `%s`), acrescenta o código a `LANGS` no início de `web/js/app.js` (é o que define o formato dos números e das datas) e põe o código no convar.
 
-## Trocar as imagens
+## O aspeto do terminal
 
-As ilustrações são WebP em `web/img/`. Para pores as tuas, substitui o ficheiro mantendo o nome. Se usares PNG ou JPG, muda a extensão nas linhas `url(...)` de `web/css/style.css`, em `web/js/app.js` (`routeImage`) e em `fxmanifest.lua`.
+Não há ficheiros de imagem para trocar: tudo o que se vê é desenhado em CSS e SVG a partir dos dados
+da rota. Para mexer no aspeto:
 
-| Ficheiro | Onde aparece | Tamanho recomendado |
-| --- | --- | --- |
-| `poster.webp` | Cartaz à esquerda do terminal | 800 x 1760 |
-| `routes/<id>.webp` | Foto-cartão de cada rota, cabeçalho do painel durante o turno | 640 x 384 |
-| `routes/default.webp` | Rota sem imagem própria | 640 x 384 |
-| `banner.webp` | Faixa do separador Motorista | 1100 x 260 |
-| `ranking.webp` | Fundo do pódio na classificação | 1100 x 300 |
-| `stage_coach.webp`, `stage_city.webp`, `stage_airport.webp` | Palco de cada autocarro na Frota (`coach`, `bus`/outros, `airbus`) | 760 x 480 |
-| `stage.webp` | Palco de reserva, usado se faltar a imagem de um tipo | 760 x 480 |
+| O quê | Onde |
+| --- | --- |
+| Cores das linhas (uma por rota) | `LINES` no início de `web/js/app.js` |
+| Escalões do motorista (avatar, pódio) | `--l1` a `--l5` em `web/css/style.css` |
+| Cor base do painel | `Config.UI.theme` (cada jogador escolhe a sua no terminal) |
+| Chapa, filetes, cantos | `--plate`, `--edge`, `--r` em `:root` |
+| Letreiro de destino | `.blind*` em `web/css/style.css` |
+| Faixa de paragens dos cartões | `lineStrip()` em `web/js/app.js` e `.strip*` no CSS |
+| Traçado da linha | `routeMap()` em `web/js/app.js` |
+| Autocarros da Frota | `busArt()` em `web/js/app.js` e `.bus*` no CSS |
 
-`<id>` é o número da rota em `config/routes.lua`. Uma rota nova que não tenha imagem usa `routes/default.webp`. Também podes apontar para outro ficheiro com um campo `image = 'img/routes/minha.webp'` dentro da rota (e acrescentar o caminho a `files` no `fxmanifest.lua` se estiver fora de `web/img/routes/`).
-
-O texto por cima das imagens tem sempre um degradê escuro, por isso o que importa fica legível. Ficheiros WebP pequenos (qualidade 75 a 80) mantêm o terminal a abrir depressa; as imagens que vêm incluídas pesam cerca de 1,1 MB no total.
+As fontes **Barlow**, **Barlow Condensed** e **Doto** continuam em `web/fonts/`. O recurso passou de
+cerca de 1,8 MB para 580 KB.
 
 ## Segurança
 
@@ -223,10 +264,12 @@ shared.lua            tempo de referência, distância e passageiros de cada rot
 server.lua            sessões, pagamento, multas, histórico, perfil, classificação
 client/main.lua       fluxo da rota, marcadores, ligação à interface
 client/passengers.lua passageiros locais
-web/                  interface (HTML, CSS, JS, sem build)
-web/img/              imagens do terminal (WebP)
+web/                  interface (HTML, CSS, JS, sem build, sem imagens)
+web/fonts/            Barlow, Barlow Condensed e Doto
 ```
 
 ## Créditos
 
-Fontes **Barlow**, **Barlow Condensed** e **Doto**, sob a licença SIL Open Font License 1.1. Os textos das licenças estão em `web/fonts/`. As imagens em `web/img/` são originais deste recurso, renderizadas em 3D com Blender (Cycles).
+Fontes **Barlow**, **Barlow Condensed** e **Doto**, sob a licença SIL Open Font License 1.1. Os textos
+das licenças estão em `web/fonts/`. Não há mais nenhum recurso de terceiros: tudo o resto é desenhado
+pelo próprio código.

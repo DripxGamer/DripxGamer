@@ -813,8 +813,15 @@ local function serviceStopInner(source, token, netId)
     end
 
     local route = Config.Routes[session.routeId]
-    local stop = route and route.stops[session.nextStop]
-    if not stop then
+    local stages = route and BusStageCount(route) or 0
+    if not route or session.nextStop > stages then
+        return { ok = false, error = 'invalid_route' }
+    end
+
+    -- A etapa pode ser uma paragem da rota ou a entrega na garagem.
+    local stageCoord = BusStageCoord(route, session.nextStop)
+    local stageRadius = BusStageRadius(route, session.nextStop)
+    if not stageCoord then
         return { ok = false, error = 'invalid_route' }
     end
 
@@ -825,37 +832,41 @@ local function serviceStopInner(source, token, netId)
         or GetEntityModel(vehicle) ~= joaat(session.model) then
         return { ok = false, error = 'must_drive' }
     end
-    if #(GetEntityCoords(vehicle) - stop.stop_coord) > Config.StopRadius
+    if #(GetEntityCoords(vehicle) - stageCoord) > stageRadius
         or GetEntitySpeed(vehicle) > Config.StopSpeedLimit then
         return { ok = false, error = 'must_stop' }
     end
 
     local now = os.time()
     local requiredDelay = session.nextStop == 1 and Config.FirstStopDelay or Config.StopCooldown
+    if BusStageIsReturn(route, session.nextStop) then
+        requiredDelay = 0      -- a garagem vem logo depois do destino
+    end
     local elapsedSinceLast = session.nextStop == 1 and now - session.startedAt or now - session.lastStopAt
     if elapsedSinceLast < requiredDelay then
         return { ok = false, error = 'too_early' }
     end
 
     local servicedStop = session.nextStop
-    local isFinal = servicedStop >= #route.stops
+    local isFinal = servicedStop >= stages
 
-    -- Paragem normal: marca-a e segue para a seguinte.
+    -- Etapa normal: marca-a e segue para a seguinte.
     if not isFinal then
         session.lastStopAt = now
         session.nextStop = servicedStop + 1
-        logShift('%s: paragem %d/%d feita (rota %d).', tostring(session.identifier), servicedStop, #route.stops, session.routeId)
+        logShift('%s: etapa %d/%d (%s) feita na rota %d.', tostring(session.identifier),
+            servicedStop, stages, BusStageKind(route, servicedStop), session.routeId)
         return {
             ok = true,
             complete = false,
             stop = servicedStop,
-            totalStops = #route.stops,
+            totalStops = stages,
         }
     end
 
-    -- ── Última paragem: calcula o pagamento ──────────────────
+    -- ── Garagem: o autocarro foi entregue, calcula o pagamento ──
     -- Daqui para baixo nada apaga o autocarro nem a sessão se algo falhar:
-    -- o jogador fica no destino e pode carregar outra vez em E para receber.
+    -- o jogador fica na garagem e pode carregar outra vez em E para receber.
     -- Trinco para dois pedidos ao mesmo tempo. Tem hora: se algo correr mal
     -- a meio, liberta-se sozinho em segundos em vez de prender o turno.
     if session.payingAt and now - session.payingAt < 10 then
@@ -928,7 +939,7 @@ local function serviceStopInner(source, token, netId)
     -- Pago. Só agora a rota fica fechada.
     session.lastStopAt = now
     session.nextStop = servicedStop + 1
-    logShift('%s terminou a rota %d: %s%d em %s (%s), %d estrelas, %ds.',
+    logShift('%s entregou o autocarro da rota %d: %s%d em %s (%s), %d estrelas, %ds.',
         tostring(session.identifier), session.routeId, Config.Currency, payment, account, how, stars, elapsed)
 
     profile.experience = profile.experience + experience
